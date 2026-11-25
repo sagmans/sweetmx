@@ -1,6 +1,6 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
-        local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds staple \
+        local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
 
@@ -66,8 +66,17 @@ NOTARIZE_TIMEOUT := 30m
 # Longest wait for the credential check in `preflight`, in seconds, so a dead
 # network stops the release at once instead of hanging it.
 NOTARIZE_CREDS_TIMEOUT := 60
-# One flow for every release artifact; see the script header.
-NOTARIZE_ARTIFACT := bash scripts/notarize-artifact.sh "$(NOTARIZE_PROFILE)" "$(NOTARIZE_TIMEOUT)"
+# Grace period after that limit before the check is killed, in seconds.
+NOTARIZE_CREDS_KILL_AFTER := 5
+# One flow for every release artifact; see the script header. The profile and
+# the time limit go in the environment so each call site shows only the three
+# things that differ: the artifact, its log, and what receives the ticket.
+NOTARIZE_ARTIFACT := NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" NOTARIZE_TIMEOUT="$(NOTARIZE_TIMEOUT)" \
+	bash scripts/notarize-artifact.sh
+# The disk image is built, signed, and notarized here and moved to DIST_DIR
+# only when Apple's ticket is on it. A failure or an interrupt at any step
+# then leaves nothing at the release path for a later upload to pick up.
+DMG_WORK_DIR := $(BUILD_DIR)/dmg-work
 ENTITLEMENTS := Resources/SweetMX.entitlements
 # Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
 # on Retina screens instead of upscaling the 18 px file.
@@ -182,9 +191,8 @@ help:
 	@echo "  make verify-sign  - Verify code signature"
 	@echo "  make check-adhoc  - Check for ad-hoc signature (warning)"
 	@echo "  make notary-check - $(YELLOW)FULL notarization readiness check$(NC)"
-	@echo "  make notarize     - Submit to Apple notarization"
+	@echo "  make notarize     - Notarize the app and staple its ticket"
 	@echo "  make check-notarize ID=xxx - Check notarization status"
-	@echo "  make staple       - Staple notarization ticket"
 	@echo ""
 	@echo "$(GREEN)Packaging:$(NC)"
 	@echo "  make zip          - Create signed .zip"
@@ -482,11 +490,13 @@ check-cert:
 # missing or revoked key stops a release in seconds and not after the tests.
 check-notarize-creds:
 	@echo "$(BLUE)Checking notarization credentials...$(NC)"
-	@if timeout "$(NOTARIZE_CREDS_TIMEOUT)" xcrun notarytool history \
-		--keychain-profile "$(NOTARIZE_PROFILE)" >/dev/null 2>&1; then \
+	@# notarytool's own message stays visible: it names the cause (no such
+	@# profile, revoked key, no network), which this target cannot tell apart.
+	@if timeout -k "$(NOTARIZE_CREDS_KILL_AFTER)" "$(NOTARIZE_CREDS_TIMEOUT)" \
+		xcrun notarytool history --keychain-profile "$(NOTARIZE_PROFILE)" >/dev/null; then \
 		echo "$(GREEN)OK: profile $(NOTARIZE_PROFILE) is accepted by Apple$(NC)"; \
 	else \
-		echo "$(RED)ERROR: profile $(NOTARIZE_PROFILE) is missing, rejected, or Apple did not answer in $(NOTARIZE_CREDS_TIMEOUT)s$(NC)"; \
+		echo "$(RED)ERROR: profile $(NOTARIZE_PROFILE) failed the check (limit $(NOTARIZE_CREDS_TIMEOUT)s); the cause is above$(NC)"; \
 		echo "$(YELLOW)See RELEASE.md, section 2 (Notarization Credentials)$(NC)"; \
 		exit 1; \
 	fi
@@ -540,7 +550,8 @@ verify-sign:
 		echo "$(RED)WARNING: Ad-hoc signature detected!$(NC)"; \
 	fi
 
-# Submit to Apple notarization service
+# Notarize the app and attach its ticket. Both happen in one target so no
+# package target can run on a bundle that Apple accepted but has no ticket.
 notarize: sign
 	@echo "$(BLUE)Preparing for notarization...$(NC)"
 	@mkdir -p "$(DIST_DIR)"
@@ -551,7 +562,8 @@ notarize: sign
 	@echo "$(BLUE)Submitting to Apple notarization service...$(NC)"
 	@echo "$(YELLOW)This may take 5-15 minutes...$(NC)"
 	@echo ""
-	@$(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(APP_NAME)-notarize.zip" "$(DIST_DIR)/notarize.log"
+	@$(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(APP_NAME)-notarize.zip" \
+		"$(DIST_DIR)/notarize.log" "$(APP_BUNDLE)"
 	@rm -f "$(DIST_DIR)/$(APP_NAME)-notarize.zip"
 	@echo "$(GREEN)Notarization ACCEPTED!$(NC)"
 
@@ -566,15 +578,6 @@ check-notarize:
 	@echo ""
 	@echo "$(BLUE)Fetching detailed log...$(NC)"
 	@xcrun notarytool log "$(ID)" --keychain-profile "$(NOTARIZE_PROFILE)" 2>/dev/null || echo "$(YELLOW)Log not available yet$(NC)"
-
-# Staple notarization ticket to app
-staple:
-	@echo "$(BLUE)Stapling notarization ticket...$(NC)"
-	@xcrun stapler staple "$(APP_BUNDLE)"
-	@echo "$(GREEN)Stapled: $(APP_BUNDLE)$(NC)"
-	@echo ""
-	@echo "--- Verifying staple ---"
-	@xcrun stapler validate "$(APP_BUNDLE)" && echo "$(GREEN)Staple: VALID$(NC)"
 
 # ==============================================================================
 # Notarization Readiness Check (Apple Documentation Compliance)
@@ -733,7 +736,7 @@ notary-check: sign
 # ==============================================================================
 
 # Create signed and notarized ZIP
-zip: staple
+zip: notarize
 	@echo "$(BLUE)Creating ZIP package...$(NC)"
 	@mkdir -p "$(DIST_DIR)"
 	@cd "$(BUILD_DIR)" && zip -r -q "dist/$(ZIP_NAME)" "$(APP_NAME).app"
@@ -741,36 +744,32 @@ zip: staple
 	@ls -lh "$(DIST_DIR)/$(ZIP_NAME)"
 
 # Create signed and notarized DMG
-dmg: staple
+dmg: notarize
 	@echo "$(BLUE)Creating DMG package...$(NC)"
 	@mkdir -p "$(DIST_DIR)"
-	@# Clean up any existing staging
-	@rm -rf "$(BUILD_DIR)/dmg-staging"
-	@mkdir -p "$(BUILD_DIR)/dmg-staging"
+	@# An image from an earlier build must not pass for this one.
+	@rm -f "$(DIST_DIR)/$(DMG_NAME)"
+	@rm -rf "$(DMG_WORK_DIR)"
+	@mkdir -p "$(DMG_WORK_DIR)/staging"
 	@# Copy app and create Applications symlink
-	@cp -R "$(APP_BUNDLE)" "$(BUILD_DIR)/dmg-staging/"
-	@ln -sf /Applications "$(BUILD_DIR)/dmg-staging/Applications"
+	@cp -R "$(APP_BUNDLE)" "$(DMG_WORK_DIR)/staging/"
+	@ln -sf /Applications "$(DMG_WORK_DIR)/staging/Applications"
 	@# Add volume icon for DMG (shows in Finder when mounted)
-	@cp Resources/AppIcon.icns "$(BUILD_DIR)/dmg-staging/.VolumeIcon.icns"
-	@# Create DMG
+	@cp Resources/AppIcon.icns "$(DMG_WORK_DIR)/staging/.VolumeIcon.icns"
 	@hdiutil create -volname "$(APP_NAME)" \
-		-srcfolder "$(BUILD_DIR)/dmg-staging" \
+		-srcfolder "$(DMG_WORK_DIR)/staging" \
 		-ov -format UDZO \
-		"$(DIST_DIR)/$(DMG_NAME)" \
+		"$(DMG_WORK_DIR)/$(DMG_NAME)" \
 		>/dev/null
-	@rm -rf "$(BUILD_DIR)/dmg-staging"
 	@# Gatekeeper judges the disk image on its own signature, so an unsigned
 	@# image is reported as "no usable signature" even with a notarized app in it.
-	@codesign --force --sign "$(DEVELOPER_ID)" --timestamp "$(DIST_DIR)/$(DMG_NAME)"
-	@# A release image must carry its own ticket. An image that fails is
-	@# deleted, so a later upload cannot pick up an image Gatekeeper rejects.
+	@codesign --force --sign "$(DEVELOPER_ID)" --timestamp "$(DMG_WORK_DIR)/$(DMG_NAME)"
+	@# A release image must carry its own ticket.
 	@echo "$(BLUE)Notarizing DMG...$(NC)"
-	@if ! $(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(DMG_NAME)" \
-		"$(DIST_DIR)/notarize-dmg.log" "$(DIST_DIR)/$(DMG_NAME)"; then \
-		rm -f "$(DIST_DIR)/$(DMG_NAME)"; \
-		echo "$(RED)ERROR: removed the rejected image $(DIST_DIR)/$(DMG_NAME)$(NC)"; \
-		exit 1; \
-	fi
+	@$(NOTARIZE_ARTIFACT) "$(DMG_WORK_DIR)/$(DMG_NAME)" \
+		"$(DIST_DIR)/notarize-dmg.log" "$(DMG_WORK_DIR)/$(DMG_NAME)"
+	@mv "$(DMG_WORK_DIR)/$(DMG_NAME)" "$(DIST_DIR)/$(DMG_NAME)"
+	@rm -rf "$(DMG_WORK_DIR)"
 	@echo "$(GREEN)Created: $(DIST_DIR)/$(DMG_NAME)$(NC)"
 	@ls -lh "$(DIST_DIR)/$(DMG_NAME)"
 
@@ -893,11 +892,10 @@ release: dist tag-push
 #   4. build      - Compile release binary
 #   5. bundle     - Create .app bundle
 #   6. sign       - Sign with Developer ID (hardened runtime)
-#   7. notarize   - Submit to Apple, wait for approval
-#   8. staple     - Attach notarization ticket
-#   9. dist       - Create .zip and .dmg packages
-#  10. tag-push   - Create and push git tag
-#  11. release    - Create GitHub release with artifacts
+#   7. notarize   - Submit to Apple, wait for approval, attach the ticket
+#   8. dist       - Create the .zip and the notarized .dmg
+#   9. tag-push   - Create and push git tag
+#  10. release    - Create GitHub release with artifacts
 #
 # ==============================================================================
 

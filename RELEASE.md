@@ -25,7 +25,7 @@ code signing and notarization for macOS distribution.
        ┌──────────────────────┬──────────────────────┘
        ▼                      ▼                      
    ┌────────┐           ┌──────────┐          ┌──────────┐
-   │ staple │    →      │  dist    │    →     │ release  │
+   │  dist  │    →      │ tag-push │    →     │ release  │
    └────────┘           └──────────┘          └──────────┘
 ```
 
@@ -47,11 +47,14 @@ This runs the **complete pipeline**:
 4. Build release binary
 5. Create app bundle
 6. Sign with Developer ID
-7. Submit to Apple notarization
-8. Staple notarization ticket
-9. Create .zip and .dmg packages
-10. Create git tag and push
-11. Create GitHub release with artifacts
+7. Submit the app to Apple notarization and staple its ticket
+8. Create the .zip and .dmg packages; the .dmg is signed, notarized, and
+   stapled too
+9. Create git tag and push
+10. Create GitHub release with artifacts
+
+The pipeline waits for Apple two times: one time for the app and one time
+for the disk image. Each wait has a limit of 30 minutes.
 
 ---
 
@@ -275,16 +278,16 @@ make check-cert     # Verify Developer ID cert exists
 ### Notarization
 
 ```bash
-make notarize       # Submit to Apple (includes sign, waits for result)
+make check-notarize-creds   # Verify the stored notarization profile
+make notarize       # Sign, submit to Apple, wait, staple the ticket
 make check-notarize ID=xxx  # Check submission status
-make staple         # Attach notarization ticket
 ```
 
 ### Packaging
 
 ```bash
-make zip            # Create signed .zip
-make dmg            # Create signed .dmg
+make zip            # Create .zip of the notarized app
+make dmg            # Create signed, notarized .dmg (second wait for Apple)
 make dist           # Create both packages
 ```
 
@@ -343,19 +346,15 @@ If timeout occurs, check status:
 make check-notarize ID=<submission-id>
 ```
 
-### 5. Staple (if notarize didn't auto-staple)
+`make notarize` also staples the ticket to the app and validates it.
 
-```bash
-make staple
-```
-
-### 6. Package
+### 5. Package
 
 ```bash
 make dist
 ```
 
-### 7. Release
+### 6. Release
 
 ```bash
 make tag-push
@@ -374,9 +373,8 @@ make release NOTES="Your release notes"
 # Check if notarized
 spctl -a -t exec -vv .build/release/SweetMX.app
 
-# If not, re-notarize
+# If not, re-notarize (this also staples the ticket)
 make notarize
-make staple
 ```
 
 ### Notarization Stuck "In Progress"

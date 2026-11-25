@@ -7,16 +7,21 @@
 # staple, or a ticket that does not validate all stop the release.
 #
 # Usage:
-#   scripts/notarize-artifact.sh <keychain-profile> <timeout> <artifact> <log> [staple-target]
+#   NOTARIZE_PROFILE=<keychain-profile> NOTARIZE_TIMEOUT=<duration> \
+#     scripts/notarize-artifact.sh <artifact> <log> <staple-target>
 #
-# <timeout> uses the notarytool form (for example 30m). Give [staple-target]
-# only when the ticket belongs on the submitted file's own container; the app
-# archive is not stapled, the bundle inside it is (see `make staple`).
+# The profile and the time limit come from the environment because they are
+# the same for every artifact; the Makefile exports them once. The time limit
+# uses the notarytool form (for example 30m).
+#
+# <staple-target> is what receives the ticket. For the disk image it is the
+# submitted file. For the app it is the bundle, because Apple takes an archive
+# of the bundle but a ticket cannot be attached to an archive.
 set -euo pipefail
 
 readonly ACCEPTED_MARKER='status: Accepted'
 readonly SUBMISSION_ID_PATTERN='^[[:space:]]*id:[[:space:]]*[0-9a-fA-F-]+$'
-readonly USAGE='usage: notarize-artifact.sh <keychain-profile> <timeout> <artifact> <log> [staple-target]'
+readonly USAGE='usage: NOTARIZE_PROFILE=<profile> NOTARIZE_TIMEOUT=<duration> notarize-artifact.sh <artifact> <log> <staple-target>'
 
 fail() {
 	echo "notarize-artifact: ERROR: $1" >&2
@@ -36,12 +41,14 @@ print_followup() {
 }
 
 main() {
-	if [ "$#" -lt 4 ] || [ "$#" -gt 5 ]; then
+	if [ "$#" -ne 3 ] || [ -z "${NOTARIZE_PROFILE:-}" ] || [ -z "${NOTARIZE_TIMEOUT:-}" ]; then
 		fail "$USAGE"
 	fi
-	local profile="$1" timeout="$2" artifact="$3" log="$4" staple_target="${5:-}"
+	local profile="$NOTARIZE_PROFILE" timeout="$NOTARIZE_TIMEOUT"
+	local artifact="$1" log="$2" staple_target="$3"
 
 	[ -f "$artifact" ] || fail "artifact not found: $artifact"
+	[ -e "$staple_target" ] || fail "staple target not found: $staple_target"
 
 	echo "Submitting $artifact to Apple (profile $profile, timeout $timeout)..."
 	local started="$SECONDS"
@@ -60,9 +67,6 @@ main() {
 	fi
 	echo "Notarization accepted: $artifact (${elapsed}s)"
 
-	if [ -z "$staple_target" ]; then
-		return 0
-	fi
 	xcrun stapler staple "$staple_target" ||
 		fail "could not staple the ticket to $staple_target"
 	xcrun stapler validate "$staple_target" ||
