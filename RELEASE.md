@@ -73,7 +73,8 @@ for the disk image. Each wait has a limit of 30 minutes.
 | ------ | --------- | --------- |
 | Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
-| timeout | Time limits for release steps | `brew install coreutils` |
+| jq | Reads Apple's notarization answer | `brew install jq` |
+| timeout | Time limits on release steps | `brew install coreutils` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 
 Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
@@ -250,6 +251,11 @@ make check-notarize ID=b9976e01-0b7d-4f0a-9a61-79d65ef0731a
 xcrun notarytool log <ID> --keychain-profile "SweetMX-Notarize"
 ```
 
+Each submission stores Apple's answer as JSON in `.build/release/notarize/`:
+`app.json` for the app and `dmg.json` for the disk image. A failed submission
+prints the path of its answer and the `make check-notarize` command with its
+ID.
+
 ### Common Notarization Issues
 
 | Issue | Cause | Fix |
@@ -287,7 +293,7 @@ make check-cert     # Verify Developer ID cert exists
 
 ```bash
 make check-notarize-creds   # Verify the stored notarization profile
-make notarize       # Sign, submit to Apple, wait, staple the ticket
+make notarize       # Build, sign, submit to Apple, wait, staple the ticket
 make check-notarize ID=xxx  # Check submission status
 ```
 
@@ -299,13 +305,28 @@ make dmg            # Create signed, notarized .dmg (second wait for Apple)
 make dist           # Create both packages
 ```
 
+The package targets do only the work that is not done. They submit the app
+only when the bundle has no ticket, or when the sources or resources are not
+those the notarized app was built from. They build a package only when it is
+missing or older than the ticket. `make notarize` always builds and submits
+again, and it removes the packages of the earlier bundle.
+
+`make run`, `make install`, `make bundle`, `make sign`, and
+`make notary-check` build the bundle again, which removes the ticket. After
+one of them, the next package target submits the app and the disk image
+again. To test a release, open the packages in `.build/release/dist/`.
+
+Packages are built in `.build/release/package-work/` and moved to
+`.build/release/dist/` when they are complete. The release folder holds only
+files that are ready to upload.
+
 ### Release
 
 ```bash
 make preflight      # Run all pre-release checks
 make tag            # Create signed git tag
 make tag-push       # Create + push tag
-make release        # Full release to GitHub
+make release        # Package if necessary, tag, push the tag, upload
 make cask           # Publish the Homebrew cask for the released version
 make cask-render    # Write that cask to a file; publish nothing
 make cask-check     # Check the cask template with brew style
@@ -326,11 +347,20 @@ make help                    # Show all targets
 
 If you need more control than `make ship`:
 
+One manual release sends each artifact to Apple one time: the app in step 4
+and the disk image in step 5. A step that is repeated without a change sends
+nothing. Do not change files or run `make run` between step 4 and step 6: a
+change makes the next step submit again.
+
 ### 1. Pre-flight Checks
 
 ```bash
 make preflight
 ```
+
+The checks stop on a missing release tool, on a failed certificate or
+credential check, and on a tag that exists for this version, here or on
+`origin`.
 
 ### 2. Run Tests
 
@@ -344,6 +374,9 @@ make test
 make sign
 make verify-sign
 ```
+
+This step is optional. It lets you examine the signature before Apple gets
+the app. Step 4 builds and signs again.
 
 ### 4. Notarize
 
@@ -365,12 +398,17 @@ make check-notarize ID=<submission-id>
 make dist
 ```
 
+This step uses the app from step 4 and submits only the disk image.
+
 ### 6. Release
 
 ```bash
-make tag-push
 make release NOTES="Your release notes"
 ```
+
+This step uses the packages from step 5. It creates the tag, pushes it, and
+uploads the packages. Do not run `make tag-push` first: `make release` runs
+it, and a tag that exists stops the release.
 
 `make release` also publishes the Homebrew cask as its last step.
 
@@ -498,6 +536,10 @@ spctl -a -t exec -vv .build/release/SweetMX.app
 
 ### Git Tag Already Exists
 
+`make preflight` stops when the tag of this version exists. For a new
+release, use `make version-bump V=x.y.z`. Delete a tag only if its release
+was not published:
+
 ```bash
 # Delete local tag
 git tag -d v1.2.0
@@ -580,10 +622,13 @@ Notarization:
 [ ] Submitted to Apple
 [ ] Status: Accepted
 [ ] Ticket stapled to app
+[ ] Disk image submitted to Apple
+[ ] Disk image status: Accepted
+[ ] Ticket stapled to disk image
 
 Packaging:
 [ ] .zip created
-[ ] .dmg created
+[ ] .dmg created and signed
 [ ] Both verified (can open on fresh Mac)
 
 Release:

@@ -14,6 +14,24 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   `brew install --cask sagmans/tap/sweetmx`. Each release publishes its cask
   to the tap
 
+### Changed
+
+- A manual release sends each artifact to Apple one time. `make dist` and
+  `make release` use an app that is notarized and packages that are built,
+  and work again only when the sources or resources changed
+- The release steps read Apple's notarization answer as JSON, so a release
+  needs `jq`
+- The release disk image is built with `diskutil image`, the replacement for
+  the deprecated `hdiutil create`
+
+### Fixed
+
+- `make preflight` stops when the tag of the version exists, here or on
+  `origin`, or a release tool is missing
+- The release folder holds only complete packages. The archives are built in
+  a work folder, and Apple's answers are kept in a different folder
+- A rejected notarization removes the packages of the earlier build
+
 ## [1.1.2] - 2026-11-25
 
 ### Added
