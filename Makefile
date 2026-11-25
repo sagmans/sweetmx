@@ -766,15 +766,25 @@ dmg: staple
 		"$(DIST_DIR)/$(DMG_NAME)" \
 		>/dev/null
 	@rm -rf "$(BUILD_DIR)/dmg-staging"
-	@# Notarize the DMG itself (optional but recommended)
+	@# Gatekeeper judges the disk image on its own signature, so an unsigned
+	@# image is reported as "no usable signature" even with a notarized app in it.
+	@codesign --force --sign "$(DEVELOPER_ID)" --timestamp "$(DIST_DIR)/$(DMG_NAME)"
+	@# A release image must carry its own ticket: a failure here stops the
+	@# build, so an image that Gatekeeper rejects cannot reach a release.
 	@echo "$(BLUE)Notarizing DMG...$(NC)"
-	@xcrun notarytool submit "$(DIST_DIR)/$(DMG_NAME)" \
+	@if ! xcrun notarytool submit "$(DIST_DIR)/$(DMG_NAME)" \
 		--keychain-profile "$(NOTARIZE_PROFILE)" \
 		--wait \
 		--timeout 15m \
-		>/dev/null 2>&1 && \
-		xcrun stapler staple "$(DIST_DIR)/$(DMG_NAME)" >/dev/null 2>&1 || \
-		echo "$(YELLOW)DMG notarization skipped (app already notarized)$(NC)"
+		>"$(DIST_DIR)/notarize-dmg.log" 2>&1 || \
+		! grep -q "status: Accepted" "$(DIST_DIR)/notarize-dmg.log"; then \
+		echo "$(RED)ERROR: DMG notarization failed. Log: $(DIST_DIR)/notarize-dmg.log$(NC)"; \
+		exit 1; \
+	fi
+	@if ! xcrun stapler staple "$(DIST_DIR)/$(DMG_NAME)" >/dev/null 2>&1; then \
+		echo "$(RED)ERROR: could not staple the ticket to $(DIST_DIR)/$(DMG_NAME)$(NC)"; \
+		exit 1; \
+	fi
 	@echo "$(GREEN)Created: $(DIST_DIR)/$(DMG_NAME)$(NC)"
 	@ls -lh "$(DIST_DIR)/$(DMG_NAME)"
 
