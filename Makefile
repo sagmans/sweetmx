@@ -2,6 +2,7 @@
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
         local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
         notary-check zip dmg dist tag tag-push release ship cask cask-render cask-check _gh-release \
+        check-release-tools record-release-inputs FORCE \
         preflight version-bump help
 
 # ==============================================================================
@@ -45,12 +46,19 @@ ADHOC_SIGNING_IDENTITY := -
 STOP_POLL_SECONDS := 1
 STOP_POLL_LIMIT := 10
 LOG_DIR := $(HOME)/Library/Logs/$(APP_NAME)
+# The release folder. It holds only finished artifacts that are ready to
+# upload: each one is built in PACKAGE_WORK_DIR and moved here as the last step.
 DIST_DIR := $(BUILD_DIR)/dist
 
 # Extract version from Info.plist (can override: make release VERSION=1.0.0)
 VERSION ?= $(shell /usr/libexec/PlistBuddy -c "Print CFBundleVersion" Resources/Info.plist 2>/dev/null || echo "0.0.0")
 ZIP_NAME := $(APP_NAME)-v$(VERSION)-macOS.zip
 DMG_NAME := $(APP_NAME)-v$(VERSION)-macOS.dmg
+# The packages are real files, not phony targets, so a step that already ran
+# is not run again: `make dist` after `make notarize`, or `make release` after
+# `make dist`, sends nothing to Apple a second time.
+ZIP_PATH := $(DIST_DIR)/$(ZIP_NAME)
+DMG_PATH := $(DIST_DIR)/$(DMG_NAME)
 # Public home of the project; release messages link here so a maintainer can
 # open the new release in one click. Change it if the repository moves.
 REPO_URL := https://github.com/sagmans/sweetmx
@@ -68,15 +76,54 @@ NOTARIZE_TIMEOUT := 30m
 NOTARIZE_CREDS_TIMEOUT := 60
 # Grace period after that limit before the check is killed, in seconds.
 NOTARIZE_CREDS_KILL_AFTER := 5
-# One flow for every release artifact; see the script header. The profile and
-# the time limit go in the environment so each call site shows only the three
-# things that differ: the artifact, its log, and what receives the ticket.
-NOTARIZE_ARTIFACT := NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" NOTARIZE_TIMEOUT="$(NOTARIZE_TIMEOUT)" \
-	bash scripts/notarize-artifact.sh
-# The disk image is built, signed, and notarized here and moved to DIST_DIR
-# only when Apple's ticket is on it. A failure or an interrupt at any step
-# then leaves nothing at the release path for a later upload to pick up.
-DMG_WORK_DIR := $(BUILD_DIR)/dmg-work
+# The profile and the time limit go in the environment so each call site shows
+# only what differs between artifacts.
+NOTARIZE_ENV := NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" NOTARIZE_TIMEOUT="$(NOTARIZE_TIMEOUT)"
+# One flow for every release artifact; see the script header.
+NOTARIZE_SCRIPT := scripts/notarize-artifact.sh
+NOTARIZE_ARTIFACT := $(NOTARIZE_ENV) bash $(NOTARIZE_SCRIPT)
+# Owns the order of the disk image steps; see the script header.
+DMG_PACKAGER := scripts/package-dmg.sh
+# Every package is built here and moved to DIST_DIR only when it is complete
+# (for the disk image: when Apple's ticket is on it). A failure or an
+# interrupt at any step then leaves nothing at the release path for a later
+# upload to pick up.
+PACKAGE_WORK_DIR := $(BUILD_DIR)/package-work
+# The archive Apple scans for the app. It is never a release artifact.
+SUBMISSION_ZIP := $(PACKAGE_WORK_DIR)/$(APP_NAME)-notarize.zip
+# Apple's answer to each submission. An answer records an attempt, a failed
+# one included, so it stays out of DIST_DIR.
+NOTARIZE_ANSWER_DIR := $(BUILD_DIR)/notarize
+APP_NOTARIZE_ANSWER := $(NOTARIZE_ANSWER_DIR)/app.json
+DMG_NOTARIZE_ANSWER := $(NOTARIZE_ANSWER_DIR)/dmg.json
+# The file `stapler` writes into the bundle. The packages depend on it, so
+# the ticket itself is the proof that the app was notarized: `make bundle`
+# removes the bundle, and the ticket with it, on every rebuild.
+APP_TICKET := $(APP_BUNDLE)/Contents/CodeResources
+# Stops a package target when the bundle changed after it was notarized (a
+# signature or an edit made by hand): the seal must hold and the ticket must
+# validate.
+REQUIRE_APP_TICKET = { codesign --verify --strict --deep "$(APP_BUNDLE)" && \
+	xcrun stapler validate "$(APP_BUNDLE)" >/dev/null; } || { \
+	echo "$(RED)ERROR: $(APP_BUNDLE) is not the app Apple notarized; run 'make notarize'$(NC)" >&2; exit 1; }
+# Everything that changes the bytes of the bundle (files and folders); keep
+# it in step with what `build`, `bundle` and `sign` read.
+RELEASE_INPUTS := Makefile Package.swift Package.resolved Sources Resources $(ICON_GENERATOR)
+# Holds the fingerprint of the inputs the notarized app was built from. A
+# ticket counts only while the inputs on disk still give this fingerprint.
+RELEASE_INPUTS_STAMP := $(BUILD_DIR)/release-inputs.sha256
+# Owns the fingerprint and its comparison; see the script header.
+RELEASE_INPUTS_CHECK := bash scripts/release-inputs.sh
+# Exit status of its `current` action for "the inputs changed"; any other
+# failure is an error and stops the release. Keep in step with the script.
+RELEASE_INPUTS_CHANGED := 3
+# Tools a release needs beyond Xcode: gh uploads, jq reads Apple's answer,
+# timeout bounds the steps that wait on a network.
+RELEASE_TOOLS := gh jq timeout
+# Longest wait for the remote tag lookup in `preflight`, in seconds.
+REMOTE_TAG_TIMEOUT := 30
+# `git ls-remote --exit-code` status for "no such ref".
+GIT_NO_SUCH_REF := 2
 # Homebrew tap that serves the cask, in the form that `brew` takes.
 HOMEBREW_TAP := sagmans/tap
 HOMEBREW_CASK_TOKEN := sweetmx
@@ -207,19 +254,19 @@ help:
 	@echo "  make verify-sign  - Verify code signature"
 	@echo "  make check-adhoc  - Check for ad-hoc signature (warning)"
 	@echo "  make notary-check - $(YELLOW)FULL notarization readiness check$(NC)"
-	@echo "  make notarize     - Notarize the app and staple its ticket"
+	@echo "  make notarize     - Build, sign, notarize the app and staple its ticket"
 	@echo "  make check-notarize ID=xxx - Check notarization status"
 	@echo ""
 	@echo "$(GREEN)Packaging:$(NC)"
-	@echo "  make zip          - Create signed .zip"
-	@echo "  make dmg          - Create signed .dmg"
+	@echo "  make zip          - Create .zip of the notarized app (notarizes if necessary)"
+	@echo "  make dmg          - Create signed, notarized .dmg"
 	@echo "  make dist         - Create both .zip and .dmg"
 	@echo ""
 	@echo "$(GREEN)Release:$(NC)"
 	@echo "  make preflight    - Run all pre-release checks"
 	@echo "  make tag          - Create signed git tag"
 	@echo "  make tag-push     - Create and push tag"
-	@echo "  make release      - Full release to GitHub"
+	@echo "  make release      - Package if necessary, tag, push the tag, upload"
 	@echo "  make cask         - Publish the Homebrew cask for the released version"
 	@echo "  make cask-render  - Write that cask to a file; publish nothing"
 	@echo "  make cask-check   - Check the cask template with brew style"
@@ -358,6 +405,8 @@ icons: $(ICON_BINARY)
 	@echo "$(BLUE)Rendering icon bitmaps (needs Xcode)...$(NC)"
 	@timeout -k $(ICON_KILL_AFTER) $(ICON_TIMEOUT) "$(ICON_BINARY)" bitmaps
 
+# A new input of the bundle must also go in RELEASE_INPUTS, or a release can
+# reuse an app built without it.
 bundle: build $(ICON_BINARY)
 	@# Refuse an unsafe bundle path before anything is removed.
 	@case "$(APP_BUNDLE)" in \
@@ -569,22 +618,50 @@ verify-sign:
 		echo "$(RED)WARNING: Ad-hoc signature detected!$(NC)"; \
 	fi
 
+# Taken before the build reads the inputs, and kept apart until Apple's
+# ticket is on the bundle: the stamp must never describe a build that was
+# not notarized.
+record-release-inputs:
+	@$(RELEASE_INPUTS_CHECK) record "$(RELEASE_INPUTS_STAMP)" $(RELEASE_INPUTS)
+
 # Notarize the app and attach its ticket. Both happen in one target so no
 # package target can run on a bundle that Apple accepted but has no ticket.
-notarize: sign
+# The fingerprint comes first: an edit made later, during the build or
+# Apple's wait, then differs from the stamp and the next package step
+# notarizes again.
+notarize: record-release-inputs sign
 	@echo "$(BLUE)Preparing for notarization...$(NC)"
-	@mkdir -p "$(DIST_DIR)"
+	@mkdir -p "$(PACKAGE_WORK_DIR)" "$(NOTARIZE_ANSWER_DIR)"
+	@# `sign` made a new bundle, so packages of an earlier one must not pass
+	@# for it, even when Apple rejects this submission.
+	@rm -f "$(ZIP_PATH)" "$(DMG_PATH)"
 	@# Create ZIP for submission
 	@echo "Creating ZIP for notarization..."
-	@ditto -c -k --keepParent "$(APP_BUNDLE)" "$(DIST_DIR)/$(APP_NAME)-notarize.zip"
+	@rm -f "$(SUBMISSION_ZIP)"
+	@ditto -c -k --keepParent "$(APP_BUNDLE)" "$(SUBMISSION_ZIP)"
 	@echo ""
 	@echo "$(BLUE)Submitting to Apple notarization service...$(NC)"
 	@echo "$(YELLOW)This may take 5-15 minutes...$(NC)"
 	@echo ""
-	@$(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(APP_NAME)-notarize.zip" \
-		"$(DIST_DIR)/notarize.log" "$(APP_BUNDLE)"
-	@rm -f "$(DIST_DIR)/$(APP_NAME)-notarize.zip"
+	@$(NOTARIZE_ARTIFACT) "$(SUBMISSION_ZIP)" "$(APP_NOTARIZE_ANSWER)" "$(APP_BUNDLE)"
+	@rm -f "$(SUBMISSION_ZIP)"
+	@$(RELEASE_INPUTS_CHECK) commit "$(RELEASE_INPUTS_STAMP)"
 	@echo "$(GREEN)Notarization ACCEPTED!$(NC)"
+
+# Never a file; makes a rule run each time it is considered.
+FORCE:
+
+# Notarizes only when the bundle has no ticket or the inputs are not those of
+# the ticket. `make notarize` always sends; the packages go through here.
+# The check runs each time and compares contents, not file times (make 3.81
+# compares whole seconds). When it passes, the ticket file is not touched, so
+# the packages stay up to date.
+$(APP_TICKET): FORCE
+	@status=0; $(RELEASE_INPUTS_CHECK) current "$(RELEASE_INPUTS_STAMP)" $(RELEASE_INPUTS) || status=$$?; \
+	if [ "$$status" -eq 0 ] && [ -f "$@" ]; then exit 0; fi; \
+	if [ "$$status" -ne 0 ] && [ "$$status" -ne "$(RELEASE_INPUTS_CHANGED)" ]; then exit "$$status"; fi; \
+	echo "$(YELLOW)No notarized app for the current sources (a new build, or 'make run' or 'make install' replaced the bundle); notarizing...$(NC)"; \
+	$(MAKE) notarize --no-print-directory
 
 # Check notarization status by submission ID
 check-notarize:
@@ -754,43 +831,31 @@ notary-check: sign
 # Packaging
 # ==============================================================================
 
-# Create signed and notarized ZIP
-zip: notarize
+# Create the ZIP of the notarized app
+$(ZIP_PATH): $(APP_TICKET)
+	@$(REQUIRE_APP_TICKET)
 	@echo "$(BLUE)Creating ZIP package...$(NC)"
-	@mkdir -p "$(DIST_DIR)"
-	@cd "$(BUILD_DIR)" && zip -r -q "dist/$(ZIP_NAME)" "$(APP_NAME).app"
-	@echo "$(GREEN)Created: $(DIST_DIR)/$(ZIP_NAME)$(NC)"
-	@ls -lh "$(DIST_DIR)/$(ZIP_NAME)"
+	@mkdir -p "$(PACKAGE_WORK_DIR)" "$(DIST_DIR)"
+	@# `ditto` writes a new archive each time and keeps symlinks, as it does
+	@# for the archive Apple scanned.
+	@ditto -c -k --keepParent "$(APP_BUNDLE)" "$(PACKAGE_WORK_DIR)/$(ZIP_NAME)"
+	@mv -f "$(PACKAGE_WORK_DIR)/$(ZIP_NAME)" "$(ZIP_PATH)"
+	@echo "$(GREEN)Created: $(ZIP_PATH)$(NC)"
+	@ls -lh "$(ZIP_PATH)"
 
-# Create signed and notarized DMG
-dmg: notarize
+zip: $(ZIP_PATH)
+
+# Create the signed and notarized DMG
+$(DMG_PATH): $(APP_TICKET) $(DMG_PACKAGER) $(NOTARIZE_SCRIPT)
+	@$(REQUIRE_APP_TICKET)
 	@echo "$(BLUE)Creating DMG package...$(NC)"
-	@mkdir -p "$(DIST_DIR)"
-	@# An image from an earlier build must not pass for this one.
-	@rm -f "$(DIST_DIR)/$(DMG_NAME)"
-	@rm -rf "$(DMG_WORK_DIR)"
-	@mkdir -p "$(DMG_WORK_DIR)/staging"
-	@# Copy app and create Applications symlink
-	@cp -R "$(APP_BUNDLE)" "$(DMG_WORK_DIR)/staging/"
-	@ln -sf /Applications "$(DMG_WORK_DIR)/staging/Applications"
-	@# Add volume icon for DMG (shows in Finder when mounted)
-	@cp Resources/AppIcon.icns "$(DMG_WORK_DIR)/staging/.VolumeIcon.icns"
-	@hdiutil create -volname "$(APP_NAME)" \
-		-srcfolder "$(DMG_WORK_DIR)/staging" \
-		-ov -format UDZO \
-		"$(DMG_WORK_DIR)/$(DMG_NAME)" \
-		>/dev/null
-	@# Gatekeeper judges the disk image on its own signature, so an unsigned
-	@# image is reported as "no usable signature" even with a notarized app in it.
-	@codesign --force --sign "$(DEVELOPER_ID)" --timestamp "$(DMG_WORK_DIR)/$(DMG_NAME)"
-	@# A release image must carry its own ticket.
-	@echo "$(BLUE)Notarizing DMG...$(NC)"
-	@$(NOTARIZE_ARTIFACT) "$(DMG_WORK_DIR)/$(DMG_NAME)" \
-		"$(DIST_DIR)/notarize-dmg.log" "$(DMG_WORK_DIR)/$(DMG_NAME)"
-	@mv "$(DMG_WORK_DIR)/$(DMG_NAME)" "$(DIST_DIR)/$(DMG_NAME)"
-	@rm -rf "$(DMG_WORK_DIR)"
-	@echo "$(GREEN)Created: $(DIST_DIR)/$(DMG_NAME)$(NC)"
-	@ls -lh "$(DIST_DIR)/$(DMG_NAME)"
+	@mkdir -p "$(NOTARIZE_ANSWER_DIR)"
+	@$(NOTARIZE_ENV) bash "$(DMG_PACKAGER)" "$(APP_BUNDLE)" Resources/AppIcon.icns \
+		"$(DEVELOPER_ID)" "$(PACKAGE_WORK_DIR)" "$(DMG_NOTARIZE_ANSWER)" "$(DMG_PATH)"
+	@echo "$(GREEN)Created: $(DMG_PATH)$(NC)"
+	@ls -lh "$(DMG_PATH)"
+
+dmg: $(DMG_PATH)
 
 # Create both distribution packages
 dist: zip dmg
@@ -805,7 +870,21 @@ dist: zip dmg
 # ==============================================================================
 
 # Pre-flight checks before release
-preflight: check-cert check-notarize-creds
+# A missing tool fails the release at a late step, or under a wrong name
+# (a missing `timeout` reads as a failed credential check), so it stops first.
+check-release-tools:
+	@echo "$(BLUE)Checking release tools...$(NC)"
+	@for tool in $(RELEASE_TOOLS); do \
+		if command -v "$$tool" >/dev/null 2>&1; then \
+			echo "$(GREEN)OK: $$tool available$(NC)"; \
+		else \
+			echo "$(RED)ERROR: $$tool not found$(NC)"; \
+			echo "$(YELLOW)See RELEASE.md, section Required Tools$(NC)"; \
+			exit 1; \
+		fi; \
+	done
+
+preflight: check-release-tools check-cert check-notarize-creds
 	@echo ""
 	@echo "$(BLUE)Running pre-flight checks...$(NC)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -822,22 +901,27 @@ preflight: check-cert check-notarize-creds
 	@# Check version
 	@echo "$(BLUE)[2/6] Version check...$(NC)"
 	@echo "Current version: $(VERSION)"
-	@if git tag | grep -q "^v$(VERSION)$$"; then \
+	@# A release of an existing tag fails at the tag step, after the long
+	@# build and two waits for Apple, so it stops here.
+	@# The remote is asked too: a tag pushed from another machine is not here
+	@# until a fetch. A lookup that fails stops the release, as a tag would.
+	@# --foreground: git may have to ask for a key passphrase on the terminal.
+	@remote=0; timeout --foreground "$(REMOTE_TAG_TIMEOUT)" git ls-remote --exit-code --tags origin \
+		"refs/tags/v$(VERSION)" >/dev/null || remote=$$?; \
+	if git rev-parse -q --verify "refs/tags/v$(VERSION)" >/dev/null || [ "$$remote" -eq 0 ]; then \
 		echo "$(RED)ERROR: Tag v$(VERSION) already exists!$(NC)"; \
 		echo "$(YELLOW)Use: make version-bump V=x.y.z$(NC)"; \
+		exit 1; \
+	elif [ "$$remote" -ne "$(GIT_NO_SUCH_REF)" ]; then \
+		echo "$(RED)ERROR: could not ask origin for tag v$(VERSION) (git exit $$remote, limit $(REMOTE_TAG_TIMEOUT)s)$(NC)"; \
+		exit 1; \
 	else \
 		echo "$(GREEN)OK: Tag v$(VERSION) available$(NC)"; \
 	fi
 	@echo ""
-	@# Check gh cli
-	@echo "$(BLUE)[3/6] GitHub CLI...$(NC)"
-	@if command -v gh >/dev/null 2>&1; then \
-		echo "$(GREEN)OK: gh CLI available$(NC)"; \
-		gh auth status 2>&1 | head -2 || true; \
-	else \
-		echo "$(RED)ERROR: gh CLI not found$(NC)"; \
-		echo "$(YELLOW)Install: brew install gh$(NC)"; \
-	fi
+	@echo "$(BLUE)[3/6] Release tools...$(NC)"
+	@echo "$(GREEN)OK: Checked above$(NC)"
+	@gh auth status 2>&1 | head -2 || true
 	@echo ""
 	@# Check signing cert (already done above)
 	@echo "$(BLUE)[4/6] Code signing certificate...$(NC)"
