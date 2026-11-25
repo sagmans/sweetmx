@@ -1,7 +1,7 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
         local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
-        notary-check zip dmg dist tag tag-push release ship \
+        notary-check zip dmg dist tag tag-push release ship cask cask-render cask-check _gh-release \
         preflight version-bump help
 
 # ==============================================================================
@@ -77,6 +77,22 @@ NOTARIZE_ARTIFACT := NOTARIZE_PROFILE="$(NOTARIZE_PROFILE)" NOTARIZE_TIMEOUT="$(
 # only when Apple's ticket is on it. A failure or an interrupt at any step
 # then leaves nothing at the release path for a later upload to pick up.
 DMG_WORK_DIR := $(BUILD_DIR)/dmg-work
+# Homebrew tap that serves the cask, in the form that `brew` takes.
+HOMEBREW_TAP := sagmans/tap
+HOMEBREW_CASK_TOKEN := sweetmx
+# Homebrew reads the tap <owner>/<name> from <owner>/homebrew-<name>, Casks/.
+HOMEBREW_TAP_REPO := $(dir $(HOMEBREW_TAP))homebrew-$(notdir $(HOMEBREW_TAP))
+HOMEBREW_CASK_PATH := Casks/$(HOMEBREW_CASK_TOKEN).rb
+# The cask is kept here and filled in at each release; see the file header.
+HOMEBREW_CASK_TEMPLATE := packaging/homebrew/sweetmx.rb.template
+# One flow for every cask step; see the script header. The local disk image
+# is compared when it is there at run time, so the pipeline checks its own
+# build and a later `make cask` from a clean clone still works.
+HOMEBREW_CASK_SCRIPT = CASK_VERSION="$(VERSION)" CASK_TEMPLATE="$(HOMEBREW_CASK_TEMPLATE)" \
+	CASK_REPO_URL="$(REPO_URL)" CASK_TEAM_ID="$(TEAM_ID)" \
+	CASK_LOCAL_DMG="$(DIST_DIR)/$(DMG_NAME)" \
+	CASK_TAP_REPO="$(HOMEBREW_TAP_REPO)" CASK_TAP_PATH="$(HOMEBREW_CASK_PATH)" \
+	bash scripts/publish-homebrew-cask.sh
 ENTITLEMENTS := Resources/SweetMX.entitlements
 # Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
 # on Retina screens instead of upscaling the 18 px file.
@@ -204,7 +220,10 @@ help:
 	@echo "  make tag          - Create signed git tag"
 	@echo "  make tag-push     - Create and push tag"
 	@echo "  make release      - Full release to GitHub"
-	@echo "  make ship         - $(YELLOW)FULL PIPELINE$(NC): clean → test → sign → notarize → dist → release"
+	@echo "  make cask         - Publish the Homebrew cask for the released version"
+	@echo "  make cask-render  - Write that cask to a file; publish nothing"
+	@echo "  make cask-check   - Check the cask template with brew style"
+	@echo "  make ship         - $(YELLOW)FULL PIPELINE$(NC): clean → test → sign → notarize → dist → release → cask"
 	@echo ""
 	@echo "$(GREEN)Maintenance:$(NC)"
 	@echo "  make clean        - Remove all build artifacts"
@@ -850,10 +869,14 @@ tag-push: tag
 	@git push origin "v$(VERSION)"
 	@echo "$(GREEN)Pushed tag: v$(VERSION)$(NC)"
 
-# Create GitHub release with artifacts
+# Full release without the clean build and the tests of `ship`.
 # Usage: make release NOTES="Release notes here"
 #    or: make release NOTES_FILE=RELEASE_NOTES.md
-release: dist tag-push
+release: dist tag-push _gh-release cask
+
+# Create the GitHub release with its artifacts. One recipe for `release` and
+# `ship`, so both publish the same files in the same way.
+_gh-release:
 	@echo "$(BLUE)Creating GitHub release...$(NC)"
 	@if [ -n "$(NOTES_FILE)" ] && [ -f "$(NOTES_FILE)" ]; then \
 		gh release create "v$(VERSION)" \
@@ -873,6 +896,27 @@ release: dist tag-push
 	fi
 	@echo ""
 	@echo "$(GREEN)Released: $(REPO_URL)/releases/tag/v$(VERSION)$(NC)"
+
+# ==============================================================================
+# Homebrew cask
+# ==============================================================================
+
+# Publish the cask for the released version to the tap, after the GitHub
+# release: the checksum comes from the released image. Safe to run again.
+cask:
+	@echo "$(BLUE)Publishing the Homebrew cask for v$(VERSION)...$(NC)"
+	@$(HOMEBREW_CASK_SCRIPT) publish
+	@echo "$(GREEN)Install: brew install --cask $(HOMEBREW_TAP)/$(HOMEBREW_CASK_TOKEN)$(NC)"
+
+# Check the cask template; needs no release, so a mistake stops a push.
+cask-check:
+	@echo "$(BLUE)Checking the Homebrew cask template...$(NC)"
+	@$(HOMEBREW_CASK_SCRIPT) check
+
+# Write the exact file that `make cask` would publish; publish nothing.
+cask-render:
+	@mkdir -p "$(DIST_DIR)"
+	@$(HOMEBREW_CASK_SCRIPT) render "$(DIST_DIR)/$(notdir $(HOMEBREW_CASK_PATH))"
 
 # ==============================================================================
 # SHIP - Complete Release Pipeline
@@ -896,10 +940,16 @@ release: dist tag-push
 #   8. dist       - Create the .zip and the notarized .dmg
 #   9. tag-push   - Create and push git tag
 #  10. release    - Create GitHub release with artifacts
+#  11. cask       - Publish the Homebrew cask for the new release
 #
 # ==============================================================================
 
-ship: clean preflight test notarize dist tag-push _ship-release
+# The release steps must run in the order written: a cask before its GitHub
+# release would publish a broken state. This turns off `make -j` for the
+# whole file; the Swift build is parallel on its own.
+.NOTPARALLEL:
+
+ship: clean preflight test notarize dist tag-push _gh-release cask
 	@echo ""
 	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo "$(GREEN)  SHIP COMPLETE: $(APP_NAME) v$(VERSION)$(NC)"
@@ -910,26 +960,6 @@ ship: clean preflight test notarize dist tag-push _ship-release
 	@echo "  Artifacts:"
 	@ls -lh "$(DIST_DIR)/"*.zip "$(DIST_DIR)/"*.dmg 2>/dev/null | awk '{print "    " $$9 " (" $$5 ")"}'
 	@echo ""
-
-# Internal target for ship pipeline (avoids re-running dist)
-_ship-release:
-	@echo "$(BLUE)Creating GitHub release...$(NC)"
-	@if [ -n "$(NOTES_FILE)" ] && [ -f "$(NOTES_FILE)" ]; then \
-		gh release create "v$(VERSION)" \
-			--title "$(APP_NAME) v$(VERSION)" \
-			--notes-file "$(NOTES_FILE)" \
-			"$(DIST_DIR)/$(ZIP_NAME)" \
-			"$(DIST_DIR)/$(DMG_NAME)"; \
-	elif [ -n "$(NOTES)" ]; then \
-		gh release create "v$(VERSION)" \
-			--title "$(APP_NAME) v$(VERSION)" \
-			--notes "$(NOTES)" \
-			"$(DIST_DIR)/$(ZIP_NAME)" \
-			"$(DIST_DIR)/$(DMG_NAME)"; \
-	else \
-		echo "$(RED)ERROR: Provide NOTES='...' or NOTES_FILE=path$(NC)"; \
-		exit 1; \
-	fi
 
 # ==============================================================================
 # Utilities

@@ -1,0 +1,33 @@
+# The SweetMX cask is kept in the sweetmx repository, in packaging/homebrew.
+# `make cask` there fills in the release version and the disk image checksum
+# and replaces the copy in the Homebrew tap at each release. Change the cask
+# in the sweetmx repository, not in the tap.
+cask "sweetmx" do
+  version "@VERSION@"
+  sha256 "@SHA256@"
+
+  url "https://github.com/sagmans/sweetmx/releases/download/v#{version}/SweetMX-v#{version}-macOS.dmg"
+  name "SweetMX"
+  desc "Launcher for app search and clipboard history"
+  homepage "https://github.com/sagmans/sweetmx"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on macos: :tahoe
+
+  app "SweetMX.app"
+
+  # The global hotkeys stay registered while the app runs, so it must stop
+  # before its bundle is removed.
+  uninstall quit: "com.sagmans.sweetmx"
+
+  # Clips, recent apps, and preferences are user data: they go only when the
+  # user asks with `--zap`, never on a plain uninstall or an upgrade.
+  zap trash: [
+    "~/Library/Application Support/SweetMX",
+    "~/Library/Preferences/com.sagmans.sweetmx.plist",
+  ]
+end

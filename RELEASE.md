@@ -27,6 +27,12 @@ code signing and notarization for macOS distribution.
    ┌────────┐           ┌──────────┐          ┌──────────┐
    │  dist  │    →      │ tag-push │    →     │ release  │
    └────────┘           └──────────┘          └──────────┘
+                                                   │
+                              ┌──────────────────────┘
+                              ▼
+                         ┌──────────┐
+                         │   cask   │
+                         └──────────┘
 ```
 
 ---
@@ -52,6 +58,7 @@ This runs the **complete pipeline**:
    stapled too
 9. Create git tag and push
 10. Create GitHub release with artifacts
+11. Publish the Homebrew cask for the new release
 
 The pipeline waits for Apple two times: one time for the app and one time
 for the disk image. Each wait has a limit of 30 minutes.
@@ -66,6 +73,7 @@ for the disk image. Each wait has a limit of 30 minutes.
 | ------ | --------- | --------- |
 | Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
+| timeout | Time limits for release steps | `brew install coreutils` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 
 Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
@@ -298,6 +306,9 @@ make preflight      # Run all pre-release checks
 make tag            # Create signed git tag
 make tag-push       # Create + push tag
 make release        # Full release to GitHub
+make cask           # Publish the Homebrew cask for the released version
+make cask-render    # Write that cask to a file; publish nothing
+make cask-check     # Check the cask template with brew style
 make ship           # COMPLETE PIPELINE (recommended)
 ```
 
@@ -361,6 +372,83 @@ make tag-push
 make release NOTES="Your release notes"
 ```
 
+`make release` also publishes the Homebrew cask as its last step.
+
+---
+
+## Homebrew Cask
+
+People can install SweetMX with
+`brew install --cask sagmans/tap/sweetmx`. The cask is in the tap repository
+[sagmans/homebrew-tap](https://github.com/sagmans/homebrew-tap), in
+`Casks/sweetmx.rb`.
+
+### How the cask is updated
+
+`make ship` and `make release` end with `make cask`. You do not edit the tap
+by hand. `make cask` does these steps:
+
+1. It downloads the disk image of the release from GitHub, from the address
+   in the cask.
+2. It makes sure that the image is signed by the release team and has a
+   valid notarization ticket.
+3. It calculates the SHA-256 of the image. If `.build/release/dist` has a
+   disk image for this version, the two files must be the same.
+4. It fills a copy of `packaging/homebrew/sweetmx.rb.template` with the
+   version and the SHA-256. The template itself does not change.
+5. It commits the result to the tap with your signature and pushes it. The
+   checks of the tap run before the push.
+
+If one step fails, nothing goes to the tap, and the GitHub release stays as
+it is. Correct the cause, then run the step again:
+
+```bash
+make cask VERSION=1.2.0
+```
+
+It is safe to run `make cask` more than one time. If the tap has the same
+cask for that version, the command changes nothing. If the tap has a newer
+version, the command stops and changes nothing.
+
+To publish the cask you need push access to the tap over SSH, and a Git
+identity with a signing key in this clone. Put the SSH key in `ssh-agent`
+first: the step cannot answer a passphrase prompt.
+
+### Change the cask
+
+Change `packaging/homebrew/sweetmx.rb.template`, not the file in the tap:
+the next release replaces the file in the tap. Check the change:
+
+```bash
+make cask-check
+```
+
+`make cask-check` checks the address in the template and runs `brew style`
+on it. It needs no release, and
+it runs before each push of this repository, so a mistake in the template
+stops before a release. The tap runs the same check when `make cask` pushes.
+
+To see the exact file for a version that is released, run
+`make cask-render VERSION=1.1.2`. It writes `.build/release/dist/sweetmx.rb`
+and publishes nothing.
+
+If the app starts to save data in a new place, add the place to the `zap`
+list. A plain uninstall must not remove user data.
+
+### Check a published cask
+
+```bash
+brew update
+brew install --cask sagmans/tap/sweetmx
+brew style --cask sagmans/tap/sweetmx
+brew audit --cask --strict sagmans/tap/sweetmx
+brew uninstall --cask sweetmx
+```
+
+Homebrew loads a cask from a tap only when you trust it. The install with
+the full name trusts this cask, so the install goes first. The uninstall
+removes the trust again.
+
 ---
 
 ## Troubleshooting
@@ -418,6 +506,19 @@ git tag -d v1.2.0
 git push origin --delete v1.2.0
 ```
 
+### Homebrew Still Installs the Old Version
+
+**Cause**: The cask step failed after the GitHub release was made.
+
+```bash
+# Publish the cask for the released version
+make cask VERSION=1.2.0
+```
+
+If the message is "released image differs", you built the disk image again
+after the release. Remove `.build/release/dist/SweetMX-v1.2.0-macOS.dmg`,
+then run the command again.
+
 ### GitHub Release Already Exists
 
 ```bash
@@ -443,6 +544,7 @@ git push origin --delete v1.2.0
 | `NOTARIZE_PROFILE` | `SweetMX-Notarize` | Keychain profile name |
 | `NOTES` | (required) | Release notes inline |
 | `NOTES_FILE` | (optional) | Path to release notes file |
+| `HOMEBREW_TAP` | `sagmans/tap` | Tap that gets the cask |
 
 ### Override Examples
 
@@ -489,10 +591,12 @@ Release:
 [ ] GitHub release created
 [ ] Assets uploaded
 [ ] Release URL works
+[ ] Homebrew cask published to the tap
 
 Post-Release:
 [ ] Download and test artifact
 [ ] App opens without Gatekeeper warning
+[ ] `brew install --cask sagmans/tap/sweetmx` installs the new version
 ```
 
 ---

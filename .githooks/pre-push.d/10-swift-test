@@ -43,7 +43,7 @@ for sha in $tips; do
 	at_sha "$sha" sh -c '
 		wt=$(pwd -P)
 		export MISE_IGNORED_CONFIG_PATHS="${MISE_IGNORED_CONFIG_PATHS:+$MISE_IGNORED_CONFIG_PATHS:}$wt"
-		make format-check lint lint-scripts audit-swift-dependencies swift-sast duplication &&
+		make format-check lint lint-scripts cask-check audit-swift-dependencies swift-sast duplication &&
 		swift build && make test benchmark
 	' || exit 1
 done

@@ -19,7 +19,8 @@ template (`templates/githooks/`); change them there, not here.
   staged files and tool pins. It runs `make format-check` and `make lint` on
   Swift, then checks staged shell and Python scripts with the `shellcheck`,
   `shfmt` and `ruff` releases in `mise.toml`.
-- `pre-push` runs format, lint, and script checks (`make lint-scripts`), audits
+- `pre-push` runs format, lint, and script checks (`make lint-scripts`), checks
+  the Homebrew cask template with `brew style` (`make cask-check`), audits
   the Swift dependency revisions, scans Swift code and bundle config with the
   rules in `.semgrep-swift.yml` (`make swift-sast`), blocks duplicated
   production Swift (`make duplication`), builds, and runs the test suite and the
@@ -45,6 +46,8 @@ Commit messages follow `.githooks/GIT_CONVENTION.md`, which `commit-msg` and
 `pre-push` enforce. The generic checks need gitleaks, osv-scanner, semgrep,
 lizard and markdownlint-cli2, plus actionlint and zizmor when a push changes
 workflow files. A missing tool blocks the hook.
-The Swift checks also need `jq`, `curl`, and `timeout`. Install the tools
+The Swift checks also need `jq`, `curl`, and `timeout`. The cask check needs
+`brew`; a new Homebrew style rule can block a push until the cask template
+is corrected. Install the tools
 from `mise.toml` and a uv-managed Python 3.11 or newer before running the
 hooks. Pin validation uses Python's TOML reader offline.

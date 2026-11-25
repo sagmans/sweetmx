@@ -8,6 +8,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Homebrew install from the tap `sagmans/tap`:
+  `brew install --cask sagmans/tap/sweetmx`. Each release publishes its cask
+  to the tap
+
 ## [1.1.2] - 2026-11-25
 
 ### Added
