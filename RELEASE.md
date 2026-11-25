@@ -74,7 +74,7 @@ for the disk image. Each wait has a limit of 30 minutes.
 | Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
 | jq | Reads Apple's notarization answer | `brew install jq` |
-| timeout | Time limits on release steps | `brew install coreutils` |
+| timeout | Time limits on release steps | Part of macOS 27; before that `brew install coreutils` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 
 Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
@@ -326,7 +326,7 @@ files that are ready to upload.
 make preflight      # Run all pre-release checks
 make tag            # Create signed git tag
 make tag-push       # Create + push tag
-make release        # Package if necessary, tag, push the tag, upload
+make release        # Package if necessary, tag, push the tag, upload, publish the cask
 make cask           # Publish the Homebrew cask for the released version
 make cask-render    # Write that cask to a file; publish nothing
 make cask-check     # Check the cask template with brew style
@@ -350,7 +350,9 @@ If you need more control than `make ship`:
 One manual release sends each artifact to Apple one time: the app in step 4
 and the disk image in step 5. A step that is repeated without a change sends
 nothing. Do not change files or run `make run` between step 4 and step 6: a
-change makes the next step submit again.
+change makes the next step submit again. A new file counts as a change too,
+for example a swap file that an editor writes into `Sources/` while a file is
+open, so close the editor first.
 
 ### 1. Pre-flight Checks
 
@@ -410,6 +412,9 @@ This step uses the packages from step 5. It creates the tag, pushes it, and
 uploads the packages. Do not run `make tag-push` first: `make release` runs
 it, and a tag that exists stops the release.
 
+`make release` and `make ship` stop before they do anything else if you give
+no notes, or if the file in `NOTES_FILE` is not there.
+
 `make release` also publishes the Homebrew cask as its last step.
 
 ---
@@ -467,7 +472,7 @@ it runs before each push of this repository, so a mistake in the template
 stops before a release. The tap runs the same check when `make cask` pushes.
 
 To see the exact file for a version that is released, run
-`make cask-render VERSION=1.1.2`. It writes `.build/release/dist/sweetmx.rb`
+`make cask-render VERSION=1.1.2`. It writes `.build/release/cask/sweetmx.rb`
 and publishes nothing.
 
 If the app starts to save data in a new place, add the place to the `zap`
