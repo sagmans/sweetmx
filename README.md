@@ -6,7 +6,21 @@ SweetMX is a minimal macOS launcher for app search and clipboard history.
 
 ## Install
 
-SweetMX requires macOS 26 or later.
+SweetMX requires macOS 26 or later. Install it with Homebrew or from the
+release download; the two give the same signed app.
+
+### Homebrew
+
+```bash
+brew install --cask sagmans/tap/sweetmx
+```
+
+Then continue at step 3 below. To update, run `brew upgrade --cask sweetmx`.
+`brew uninstall --cask sweetmx` removes the app and keeps your clips, recent
+apps, and preferences. To remove that data too, run
+`brew uninstall --zap --cask sweetmx`.
+
+### Release download
 
 1. Download the `.dmg` file from the
    [latest release](https://github.com/sagmans/sweetmx/releases/latest).
@@ -20,8 +34,8 @@ SweetMX requires macOS 26 or later.
 
 Releases are signed with a Developer ID and notarized by Apple. On the first
 open, macOS asks you to confirm an app from the internet; it shows no malware
-warning. To update, download the new release and replace the app in
-Applications. Your clips, recent apps, and preferences stay.
+warning. To update a downloaded copy, download the new release and replace
+the app in Applications. Your clips, recent apps, and preferences stay.
 
 If you used Bitekey or AppleBox, quit it and turn off its login item before
 step 3. The first launch of SweetMX copies your data; see
