@@ -74,7 +74,7 @@ for the disk image. Each wait has a limit of 30 minutes.
 | Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
 | jq | Reads Apple's notarization answer | `brew install jq` |
-| timeout | Time limits on release steps | `/usr/bin/timeout` on macOS 27; if it is missing, `brew install coreutils` |
+| timeout | Time limits on steps | macOS 27, or `brew install coreutils` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 
 Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
@@ -326,7 +326,7 @@ files that are ready to upload.
 make preflight      # Run all pre-release checks
 make tag            # Create signed git tag
 make tag-push       # Create + push tag
-make release        # Package if necessary, tag, push the tag, upload, publish the cask
+make release        # Package if necessary, tag, push, upload, publish the cask
 make cask           # Publish the Homebrew cask for the released version
 make cask-render    # Write that cask to a file; publish nothing
 make cask-check     # Check the cask template with brew style
@@ -414,8 +414,12 @@ it, and a tag that exists stops the release.
 
 `make release` and `make ship` stop before they do anything else if you give
 no notes, or if the file in `NOTES_FILE` is not there.
-Keep the notes file out of `.build/` and do not move it during the release:
-`make ship` empties `.build/`, and the upload reads the file at the end.
+Keep the notes file out of the folders that `make clean` removes (`.build/`,
+`build/`, `DerivedData/`, `.swiftpm/`) and do not move it during the release:
+`make ship` runs `make clean`, and the upload reads the file at the end.
+
+If you give both, `NOTES_FILE` is used and `NOTES` is ignored. Make reads a
+`$` in `NOTES` as the start of a variable: write `$$`, or use `NOTES_FILE`.
 
 `make release` also publishes the Homebrew cask as its last step.
 
@@ -591,8 +595,8 @@ git push origin --delete v1.2.0
 | `DEVELOPER_ID` | hardcoded | Code signing certificate |
 | `TEAM_ID` | `6C96BU4M82` | Apple Team ID |
 | `NOTARIZE_PROFILE` | `SweetMX-Notarize` | Keychain profile name |
-| `NOTES` | (required) | Release notes inline |
-| `NOTES_FILE` | (optional) | Path to release notes file |
+| `NOTES` | (or `NOTES_FILE`) | Release notes inline |
+| `NOTES_FILE` | (or `NOTES`) | Release notes file; used if both are given |
 | `HOMEBREW_TAP` | `sagmans/tap` | Tap that gets the cask |
 
 ### Override Examples
