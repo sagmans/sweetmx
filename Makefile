@@ -2,7 +2,7 @@
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
         local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
         notary-check zip dmg dist tag tag-push release ship cask cask-render cask-check _gh-release \
-        check-release-tools record-release-inputs FORCE \
+        check-release-tools check-release-notes record-release-inputs FORCE \
         preflight version-bump help
 
 # ==============================================================================
@@ -140,9 +140,12 @@ HOMEBREW_CASK_TEMPLATE := packaging/homebrew/sweetmx.rb.template
 # build and a later `make cask` from a clean clone still works.
 HOMEBREW_CASK_SCRIPT = CASK_VERSION="$(VERSION)" CASK_TEMPLATE="$(HOMEBREW_CASK_TEMPLATE)" \
 	CASK_REPO_URL="$(REPO_URL)" CASK_TEAM_ID="$(TEAM_ID)" \
-	CASK_LOCAL_DMG="$(DIST_DIR)/$(DMG_NAME)" \
+	CASK_LOCAL_DMG="$(DMG_PATH)" \
 	CASK_TAP_REPO="$(HOMEBREW_TAP_REPO)" CASK_TAP_PATH="$(HOMEBREW_CASK_PATH)" \
 	bash scripts/publish-homebrew-cask.sh
+# Where `make cask-render` writes its preview. Not DIST_DIR: the preview is
+# not a release artifact, and its name carries no version.
+CASK_RENDER_DIR := $(BUILD_DIR)/cask
 ENTITLEMENTS := Resources/SweetMX.entitlements
 # Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
 # on Retina screens instead of upscaling the 18 px file.
@@ -269,7 +272,7 @@ help:
 	@echo "  make preflight    - Run all pre-release checks"
 	@echo "  make tag          - Create signed git tag"
 	@echo "  make tag-push     - Create and push tag"
-	@echo "  make release      - Package if necessary, tag, push the tag, upload"
+	@echo "  make release      - Package if necessary, tag, push the tag, upload, publish the cask"
 	@echo "  make cask         - Publish the Homebrew cask for the released version"
 	@echo "  make cask-render  - Write that cask to a file; publish nothing"
 	@echo "  make cask-check   - Check the cask template with brew style"
@@ -514,6 +517,12 @@ install: bundle
 
 uninstall:
 	@swift "$(LOCAL_INSTALLER)" uninstall $(INSTALLER_ARGS)
+
+# The release steps must run in the order written: a cask before its GitHub
+# release would publish a broken state. This turns off `make -j` for every
+# target of this file and of the included one; the Swift build is parallel
+# on its own.
+.NOTPARALLEL:
 
 # The signing, notarization, packaging and release targets live in their
 # own file, so the release flow reads as one unit.

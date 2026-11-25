@@ -31,6 +31,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - The release folder holds only complete packages. The archives are built in
   a work folder, and Apple's answers are kept in a different folder
 - A rejected notarization removes the packages of the earlier build
+- `make release` and `make ship` stop at the start when the release notes
+  are missing, not after the tag is pushed
 
 ## [1.1.2] - 2026-11-25
 

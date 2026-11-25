@@ -34,7 +34,7 @@ if [ -L "$tree/scripts" ]; then
 	echo "pre-commit: staged scripts directory must belong to the repository" >&2
 	exit 1
 fi
-for file in Makefile .swiftformat .swiftlint.yml "$MISE_CONFIG" "$LINT_SCRIPT" "$MISE_HELPER"; do
+for file in Makefile release.mk .swiftformat .swiftlint.yml "$MISE_CONFIG" "$LINT_SCRIPT" "$MISE_HELPER"; do
 	if [ -L "$tree/$file" ] || [ ! -f "$tree/$file" ] || [ ! -s "$tree/$file" ]; then
 		echo "pre-commit: staged $file must be a nonempty regular file" >&2
 		exit 1

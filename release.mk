@@ -443,27 +443,40 @@ tag-push: tag
 	@git push origin "v$(VERSION)"
 	@echo "$(GREEN)Pushed tag: v$(VERSION)$(NC)"
 
-# Full release without the clean build and the tests of `ship`.
+# Stops a release that has no notes before it sends anything to Apple or
+# pushes the tag: a pushed tag cannot be taken back, and the upload would
+# fail on the missing notes after it.
+check-release-notes:
+	@if [ -n "$(NOTES_FILE)" ] && [ ! -f "$(NOTES_FILE)" ]; then \
+		echo "$(RED)ERROR: NOTES_FILE not found: $(NOTES_FILE)$(NC)"; \
+		exit 1; \
+	elif [ -z "$(NOTES_FILE)" ] && [ -z "$(NOTES)" ]; then \
+		echo "$(RED)ERROR: Provide NOTES='...' or NOTES_FILE=path$(NC)"; \
+		exit 1; \
+	fi
+
+# Full release without the clean build and the tests of `ship`. `ship` ends
+# with this target, so a step added here is part of both.
 # Usage: make release NOTES="Release notes here"
 #    or: make release NOTES_FILE=RELEASE_NOTES.md
-release: dist tag-push _gh-release cask
+release: check-release-notes dist tag-push _gh-release cask
 
-# Create the GitHub release with its artifacts. One recipe for `release` and
-# `ship`, so both publish the same files in the same way.
+# Create the GitHub release with its artifacts. Its own step and not the
+# recipe of `release`, because the cask must come after it.
 _gh-release:
 	@echo "$(BLUE)Creating GitHub release...$(NC)"
 	@if [ -n "$(NOTES_FILE)" ] && [ -f "$(NOTES_FILE)" ]; then \
 		gh release create "v$(VERSION)" \
 			--title "$(APP_NAME) v$(VERSION)" \
 			--notes-file "$(NOTES_FILE)" \
-			"$(DIST_DIR)/$(ZIP_NAME)" \
-			"$(DIST_DIR)/$(DMG_NAME)"; \
+			"$(ZIP_PATH)" \
+			"$(DMG_PATH)"; \
 	elif [ -n "$(NOTES)" ]; then \
 		gh release create "v$(VERSION)" \
 			--title "$(APP_NAME) v$(VERSION)" \
 			--notes "$(NOTES)" \
-			"$(DIST_DIR)/$(ZIP_NAME)" \
-			"$(DIST_DIR)/$(DMG_NAME)"; \
+			"$(ZIP_PATH)" \
+			"$(DMG_PATH)"; \
 	else \
 		echo "$(RED)ERROR: Provide NOTES='...' or NOTES_FILE=path$(NC)"; \
 		exit 1; \
@@ -489,8 +502,8 @@ cask-check:
 
 # Write the exact file that `make cask` would publish; publish nothing.
 cask-render:
-	@mkdir -p "$(DIST_DIR)"
-	@$(HOMEBREW_CASK_SCRIPT) render "$(DIST_DIR)/$(notdir $(HOMEBREW_CASK_PATH))"
+	@mkdir -p "$(CASK_RENDER_DIR)"
+	@$(HOMEBREW_CASK_SCRIPT) render "$(CASK_RENDER_DIR)/$(notdir $(HOMEBREW_CASK_PATH))"
 
 # ==============================================================================
 # SHIP - Complete Release Pipeline
@@ -518,12 +531,10 @@ cask-render:
 #
 # ==============================================================================
 
-# The release steps must run in the order written: a cask before its GitHub
-# release would publish a broken state. This turns off `make -j` for the
-# whole file; the Swift build is parallel on its own.
-.NOTPARALLEL:
-
-ship: clean preflight test notarize dist tag-push _gh-release cask
+# Steps 8 to 11 are `release`, so the two targets cannot drift apart. The
+# notes are checked before step 1: `release` would find them missing only
+# after the clean build, the tests and Apple's wait.
+ship: check-release-notes clean preflight test notarize release
 	@echo ""
 	@echo "$(GREEN)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$(NC)"
 	@echo "$(GREEN)  SHIP COMPLETE: $(APP_NAME) v$(VERSION)$(NC)"
