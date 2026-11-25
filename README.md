@@ -4,6 +4,29 @@
 
 SweetMX is a minimal macOS launcher for app search and clipboard history.
 
+## Install
+
+SweetMX requires macOS 26 or later.
+
+1. Download the `.dmg` file from the
+   [latest release](https://github.com/sagmans/sweetmx/releases/latest).
+2. Open the disk image and drag SweetMX to the Applications folder.
+3. Open SweetMX from Applications. Its icon shows in the menu bar.
+4. Press `Cmd+Space` to search apps, or `Opt+Space` to open the clipboard
+   history. If Spotlight uses `Cmd+Space`, choose a different preset under
+   **Global Shortcuts** in the SweetMX menu.
+5. Grant the paste permission when macOS asks for it. SweetMX needs it to
+   paste a clip into the app in front.
+
+Releases are signed with a Developer ID and notarized by Apple, so macOS opens
+them without a warning. To update, download the new release and replace the
+app in Applications. Your clips, recent apps, and preferences stay.
+
+If you used AppleBox, quit it and turn off its login item before step 3. The
+first launch of SweetMX copies your data; see
+[Moving from Bitekey or AppleBox](#moving-from-bitekey-or-applebox), step 4
+onward.
+
 ## Building
 
 SweetMX requires macOS 26 or later and Swift 6.2 or later.

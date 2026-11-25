@@ -8,8 +8,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-25
+
 ### Added
 
+- Install steps in the README for the release download
 - MIT license
 - Contributing guide and security policy with a private reporting path
 - GitHub issue templates (bug report, feature request, docs improvement, chore)
@@ -39,6 +42,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The release disk image is signed, so Gatekeeper accepts the image and not
+  only the app in it. A failed notarization of the image stops the release
 - README GitHub Actions tests badge link
 - Info.plist bundle version fields now correctly set to 1.1.2
 - Clipboard accessibility label test no longer races the 0.5 s clipboard monitor
