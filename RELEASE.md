@@ -74,7 +74,7 @@ for the disk image. Each wait has a limit of 30 minutes.
 | Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
 | jq | Reads Apple's notarization answer | `brew install jq` |
-| timeout | Time limits on release steps | Part of macOS 27; before that `brew install coreutils` |
+| timeout | Time limits on release steps | `/usr/bin/timeout` on macOS 27; if it is missing, `brew install coreutils` |
 | Developer ID cert | Code signing | Apple Developer Portal |
 
 Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
@@ -414,6 +414,8 @@ it, and a tag that exists stops the release.
 
 `make release` and `make ship` stop before they do anything else if you give
 no notes, or if the file in `NOTES_FILE` is not there.
+Keep the notes file out of `.build/` and do not move it during the release:
+`make ship` empties `.build/`, and the upload reads the file at the end.
 
 `make release` also publishes the Homebrew cask as its last step.
 
