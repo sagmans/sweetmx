@@ -18,12 +18,13 @@ SweetMX requires macOS 26 or later.
 5. Grant the paste permission when macOS asks for it. SweetMX needs it to
    paste a clip into the app in front.
 
-Releases are signed with a Developer ID and notarized by Apple, so macOS opens
-them without a warning. To update, download the new release and replace the
-app in Applications. Your clips, recent apps, and preferences stay.
+Releases are signed with a Developer ID and notarized by Apple. On the first
+open, macOS asks you to confirm an app from the internet; it shows no malware
+warning. To update, download the new release and replace the app in
+Applications. Your clips, recent apps, and preferences stay.
 
-If you used AppleBox, quit it and turn off its login item before step 3. The
-first launch of SweetMX copies your data; see
+If you used Bitekey or AppleBox, quit it and turn off its login item before
+step 3. The first launch of SweetMX copies your data; see
 [Moving from Bitekey or AppleBox](#moving-from-bitekey-or-applebox), step 4
 onward.
 
