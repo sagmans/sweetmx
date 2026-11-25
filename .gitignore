@@ -95,3 +95,8 @@ iOSInjectionProject/
 
 ralph.sh
 prompt.md
+
+## Signing secrets
+# App Store Connect API keys authenticate notarization. One must never be
+# committed, even when a maintainer downloads it into the clone by mistake.
+*.p8

@@ -1,6 +1,6 @@
 .PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
-        local-signing sign verify-sign check-adhoc notarize check-notarize staple \
+        local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds staple \
         notary-check zip dmg dist tag tag-push release ship \
         preflight version-bump help
 
@@ -59,6 +59,15 @@ REPO_URL := https://github.com/sagmans/sweetmx
 DEVELOPER_ID := Developer ID Application: Ahmet Sercan Sagman (6C96BU4M82)
 TEAM_ID := 6C96BU4M82
 NOTARIZE_PROFILE := SweetMX-Notarize
+# Longest wait for Apple's verdict on one submission (notarytool duration
+# form). Apple's service is sometimes slow; one limit for every artifact keeps
+# a slow day from failing the disk image after the app passed.
+NOTARIZE_TIMEOUT := 30m
+# Longest wait for the credential check in `preflight`, in seconds, so a dead
+# network stops the release at once instead of hanging it.
+NOTARIZE_CREDS_TIMEOUT := 60
+# One flow for every release artifact; see the script header.
+NOTARIZE_ARTIFACT := bash scripts/notarize-artifact.sh "$(NOTARIZE_PROFILE)" "$(NOTARIZE_TIMEOUT)"
 ENTITLEMENTS := Resources/SweetMX.entitlements
 # Menu bar status item artwork. Both files ship so AppKit can pick the @2x one
 # on Retina screens instead of upscaling the 18 px file.
@@ -469,16 +478,18 @@ check-cert:
 		exit 1; \
 	fi
 
-# Check if notarization credentials are stored
+# Prove the stored notarization profile works before the long build, so a
+# missing or revoked key stops a release in seconds and not after the tests.
 check-notarize-creds:
 	@echo "$(BLUE)Checking notarization credentials...$(NC)"
-	@if xcrun notarytool store-credentials --help >/dev/null 2>&1; then \
-		echo "$(GREEN)OK: notarytool available$(NC)"; \
+	@if timeout "$(NOTARIZE_CREDS_TIMEOUT)" xcrun notarytool history \
+		--keychain-profile "$(NOTARIZE_PROFILE)" >/dev/null 2>&1; then \
+		echo "$(GREEN)OK: profile $(NOTARIZE_PROFILE) is accepted by Apple$(NC)"; \
 	else \
-		echo "$(RED)ERROR: notarytool not available$(NC)"; \
+		echo "$(RED)ERROR: profile $(NOTARIZE_PROFILE) is missing, rejected, or Apple did not answer in $(NOTARIZE_CREDS_TIMEOUT)s$(NC)"; \
+		echo "$(YELLOW)See RELEASE.md, section 2 (Notarization Credentials)$(NC)"; \
 		exit 1; \
 	fi
-	@# Note: We can't easily verify stored credentials without attempting to use them
 
 # Sign the app bundle with Developer ID
 sign: bundle check-cert
@@ -540,27 +551,9 @@ notarize: sign
 	@echo "$(BLUE)Submitting to Apple notarization service...$(NC)"
 	@echo "$(YELLOW)This may take 5-15 minutes...$(NC)"
 	@echo ""
-	@# Submit and wait
-	@xcrun notarytool submit "$(DIST_DIR)/$(APP_NAME)-notarize.zip" \
-		--keychain-profile "$(NOTARIZE_PROFILE)" \
-		--wait \
-		--timeout 30m \
-		2>&1 | tee "$(DIST_DIR)/notarize.log"
-	@# Check result
-	@if grep -q "status: Accepted" "$(DIST_DIR)/notarize.log"; then \
-		echo ""; \
-		echo "$(GREEN)Notarization ACCEPTED!$(NC)"; \
-		rm -f "$(DIST_DIR)/$(APP_NAME)-notarize.zip"; \
-	else \
-		echo ""; \
-		echo "$(RED)Notarization may have failed. Check log:$(NC)"; \
-		echo "$(DIST_DIR)/notarize.log"; \
-		echo ""; \
-		echo "To check status manually:"; \
-		ID=$$(grep "id:" "$(DIST_DIR)/notarize.log" | head -1 | awk '{print $$2}'); \
-		echo "  make check-notarize ID=$$ID"; \
-		exit 1; \
-	fi
+	@$(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(APP_NAME)-notarize.zip" "$(DIST_DIR)/notarize.log"
+	@rm -f "$(DIST_DIR)/$(APP_NAME)-notarize.zip"
+	@echo "$(GREEN)Notarization ACCEPTED!$(NC)"
 
 # Check notarization status by submission ID
 check-notarize:
@@ -769,20 +762,13 @@ dmg: staple
 	@# Gatekeeper judges the disk image on its own signature, so an unsigned
 	@# image is reported as "no usable signature" even with a notarized app in it.
 	@codesign --force --sign "$(DEVELOPER_ID)" --timestamp "$(DIST_DIR)/$(DMG_NAME)"
-	@# A release image must carry its own ticket: a failure here stops the
-	@# build, so an image that Gatekeeper rejects cannot reach a release.
+	@# A release image must carry its own ticket. An image that fails is
+	@# deleted, so a later upload cannot pick up an image Gatekeeper rejects.
 	@echo "$(BLUE)Notarizing DMG...$(NC)"
-	@if ! xcrun notarytool submit "$(DIST_DIR)/$(DMG_NAME)" \
-		--keychain-profile "$(NOTARIZE_PROFILE)" \
-		--wait \
-		--timeout 15m \
-		>"$(DIST_DIR)/notarize-dmg.log" 2>&1 || \
-		! grep -q "status: Accepted" "$(DIST_DIR)/notarize-dmg.log"; then \
-		echo "$(RED)ERROR: DMG notarization failed. Log: $(DIST_DIR)/notarize-dmg.log$(NC)"; \
-		exit 1; \
-	fi
-	@if ! xcrun stapler staple "$(DIST_DIR)/$(DMG_NAME)" >/dev/null 2>&1; then \
-		echo "$(RED)ERROR: could not staple the ticket to $(DIST_DIR)/$(DMG_NAME)$(NC)"; \
+	@if ! $(NOTARIZE_ARTIFACT) "$(DIST_DIR)/$(DMG_NAME)" \
+		"$(DIST_DIR)/notarize-dmg.log" "$(DIST_DIR)/$(DMG_NAME)"; then \
+		rm -f "$(DIST_DIR)/$(DMG_NAME)"; \
+		echo "$(RED)ERROR: removed the rejected image $(DIST_DIR)/$(DMG_NAME)$(NC)"; \
 		exit 1; \
 	fi
 	@echo "$(GREEN)Created: $(DIST_DIR)/$(DMG_NAME)$(NC)"
@@ -801,7 +787,7 @@ dist: zip dmg
 # ==============================================================================
 
 # Pre-flight checks before release
-preflight: check-cert
+preflight: check-cert check-notarize-creds
 	@echo ""
 	@echo "$(BLUE)Running pre-flight checks...$(NC)"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -842,7 +828,7 @@ preflight: check-cert
 	@# Check notarization credentials
 	@echo "$(BLUE)[5/6] Notarization credentials...$(NC)"
 	@echo "Profile: $(NOTARIZE_PROFILE)"
-	@echo "$(YELLOW)Will verify during notarization$(NC)"
+	@echo "$(GREEN)OK: Checked above$(NC)"
 	@echo ""
 	@# Check Swift
 	@echo "$(BLUE)[6/6] Swift toolchain...$(NC)"
