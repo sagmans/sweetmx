@@ -61,9 +61,16 @@ This runs the **complete pipeline**:
 
 | Tool | Purpose | Install |
 | ------ | --------- | --------- |
-| Xcode 26 or later (full app) | Swift compiler, codesign, app icon compiler (`actool`, Icon Composer) | Mac App Store, then `xcode-select -s /Applications/Xcode.app` |
+| Xcode 26 or later (full app) | Compiler, codesign, `actool` | App Store |
 | gh | GitHub CLI | `brew install gh` |
 | Developer ID cert | Code signing | Apple Developer Portal |
+
+Xcode supplies the Swift compiler, `codesign`, and the app icon compiler
+(`actool`, Icon Composer). After the install, select it:
+
+```bash
+xcode-select -s /Applications/Xcode.app
+```
 
 ### One-Time Setup
 
@@ -88,20 +95,36 @@ If missing:
 
 #### 2. Notarization Credentials
 
-Releases need the notary keychain profile `SweetMX-Notarize`. Store it once
-with `xcrun notarytool store-credentials SweetMX-Notarize`:
+Releases need the notary keychain profile `SweetMX-Notarize`. The profile
+holds an App Store Connect API key. Use an API key, not an app-specific
+password: the key has only the role you give it, and you can revoke it
+without a change to your Apple ID.
 
-```bash
-xcrun notarytool store-credentials "SweetMX-Notarize" \
-    --apple-id "your-apple-id@example.com" \
-    --team-id "YOUR_TEAM_ID"
-```
+1. Open [App Store Connect API keys](https://appstoreconnect.apple.com/access/integrations/api)
+   and select **Team Keys**.
+2. Generate a key with **Developer** access.
+3. Download the `.p8` file. Apple lets you download it one time only. Record
+   the Key ID and the Issuer ID from the same page.
+4. Store the profile:
 
-You'll be prompted for an **App-Specific Password**:
+   ```bash
+   xcrun notarytool store-credentials "SweetMX-Notarize" \
+       --key "/path/to/AuthKey_YOUR_KEY_ID.p8" \
+       --key-id "YOUR_KEY_ID" \
+       --issuer "YOUR_ISSUER_ID"
+   ```
 
-1. Go to [appleid.apple.com](https://appleid.apple.com)
-2. Sign In → Security → App-Specific Passwords
-3. Generate password for "SweetMX Notarization"
+5. Make sure that the profile works:
+
+   ```bash
+   xcrun notarytool history --keychain-profile "SweetMX-Notarize"
+   ```
+
+6. The keychain now holds a copy of the key, and the profile works without
+   the file. Save the `.p8` file in your password manager, then delete it
+   from the disk.
+
+Never put the `.p8` file in the repository. It is a secret.
 
 #### 3. GitHub CLI Authentication
 
@@ -178,7 +201,7 @@ The `Resources/SweetMX.entitlements` file declares security permissions:
 
 | Entitlement | Purpose |
 | --- | --- |
-| `app-sandbox=false` | App runs outside sandbox (required for system-wide hotkeys) |
+| `app-sandbox=false` | No sandbox: system-wide hotkeys need it |
 | `automation.apple-events` | Send Apple Events for window management |
 
 ---
@@ -221,7 +244,7 @@ xcrun notarytool log <ID> --keychain-profile "SweetMX-Notarize"
 | Issue | Cause | Fix |
 | ------- | ------- | ----- |
 | Stuck "In Progress" | Ad-hoc signed | Re-sign with Developer ID |
-| Invalid signature | Missing hardened runtime | Add `--options runtime` to codesign |
+| Invalid signature | No hardened runtime | Add `--options runtime` |
 | Missing timestamp | No `--timestamp` flag | Add `--timestamp` to codesign |
 | Credentials error | Wrong keychain profile | Re-store credentials |
 
