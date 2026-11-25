@@ -99,7 +99,8 @@ to move. "The old app" is the one you have installed.
    the old data folder (`~/Library/Application Support/Bitekey` or
    `~/Library/Application Support/AppleBox`) and the old app
    (`~/Applications/Bitekey.app` or `~/Applications/AppleBox.app`) to the
-   Trash.
+   Trash. If you installed AppleBox from a release download, the old app is
+   `/Applications/AppleBox.app`.
 
 If your old clips do not show in step 6, the copy failed. Keep the old app
 data. Quit SweetMX, move `~/Library/Application Support/SweetMX` to the Trash,
