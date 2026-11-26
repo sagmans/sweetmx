@@ -182,14 +182,9 @@ Accessibility tests ensure the UI works with VoiceOver and keyboard navigation.
 
 ### Window manager scenario checks
 
-The window manager lives in four targets beside the app. It is off by default.
-
-| Target       | Role                                                        |
-| ------------ | ----------------------------------------------------------- |
-| `WMCore`     | The model. Foundation only; it never touches a real window. |
-| `WMPlatform` | Real windows, keys and touches.                             |
-| `wm-sim`     | Development tool that runs the model with no permission.    |
-| `wmctl`      | Development tool that will control a development build.     |
+The window manager lives in four targets beside the app, and it is off by
+default. [AGENTS.md](../AGENTS.md#targets) lists the targets and what each may
+import.
 
 A scenario check runs a tool as a user does and compares its output and its
 exit status with the expected result. The checks are in
@@ -210,7 +205,8 @@ The model version is `WMVersion.current` in `Sources/WMCore`. It is apart from
 the app version in `Resources/Info.plist`.
 
 `wm-sim` and `wmctl` are never in `SweetMX.app`. `make bundle` fails when the
-bundle holds any program but the app executable.
+bundle holds any program but the app executable, in any folder.
+`make bundle-check` runs the same check on a bundle that exists.
 
 ### Window Manager switch (manual check)
 
@@ -546,14 +542,13 @@ tests and performance gate once on each pushed tip. The gate is described in
 `make swift-sast` runs the rules in `.semgrep-swift.yml` on `Sources`,
 `Resources` and the Swift scripts. Inline `nosemgrep` comments are ignored;
 an exception must be a reviewed `paths.exclude` in the rule. One exists: the
-console output rule leaves out `Sources/wm-sim` and `Sources/wmctl`, because a
-command-line tool gives its result on standard output. Semgrep's Swift
+console output rule leaves out `Sources/wm-sim`, because a command-line tool
+gives its result on standard output. Semgrep's Swift
 parser skips some newer syntax; the scan lists each skipped span and fails
 when a span is longer than `MAX_SKIPPED_LINES` in `scripts/swift-sast.sh`.
 `make duplication` fails on any duplicated block in production Swift; tests
 are not scanned. Format, lint, SAST and duplication all read the whole
-`Sources` folder, so they cover the window manager targets too. `make test`
-ends with the window manager scenario checks.
+`Sources` folder, so they cover the window manager targets too.
 
 The Swift checks need macOS; on other systems they fail with a clear reason.
 

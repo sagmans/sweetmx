@@ -1,4 +1,4 @@
-.PHONY: build test wm-scenarios python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
+.PHONY: build test wm-scenarios python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle bundle-check run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
         local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
         notary-check zip dmg dist tag tag-push release ship cask cask-render cask-check _gh-release \
@@ -175,9 +175,20 @@ BENCHMARK_TIMEOUT := 900
 BENCHMARK_RUN = SWEETMX_BENCHMARK=1 SWEETMX_BENCHMARK_BINARY="$(CURDIR)/$(RELEASE_BINARY)" \
 	SWEETMX_BENCHMARK_RESULTS="$(CURDIR)/$(BENCHMARK_RESULTS)" \
 	timeout $(BENCHMARK_TIMEOUT) swift test $(BENCHMARK_FLAGS) --filter $(BENCHMARK_FILTER)
-# Development tools that `swift build` puts beside the app executable. Named here only for the
-# bundle guard's message; the guard itself allows nothing but the app executable.
+# The shipped build holds the app only. The window manager development tools are debug builds
+# for the scenario checks, so no release copy of them exists to be packaged by mistake.
+RELEASE_BUILD := swift build -c release --product $(APP_NAME)
+# Development tools that must never ship; the bundle guard refuses them by name, in any folder.
 WM_DEV_TOOLS := wm-sim wmctl
+# Lists what the bundle must not hold: any program but the app executable, and any file named as
+# a development tool. Deny by default, so a later copy step cannot ship a second program unseen.
+BUNDLE_STRAYS = find "$(APP_BUNDLE)" ! -type d \( -perm -u+x $(foreach tool,$(WM_DEV_TOOLS),-o -name "$(tool)") \) \
+	! -path "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+# One command for `make bundle` and `make bundle-check`, so both judge a bundle the same way.
+BUNDLE_GUARD = strays="$$($(BUNDLE_STRAYS))" || exit 1; \
+	if [ -n "$$strays" ]; then \
+		echo "error: $(APP_BUNDLE) may hold one program, $(APP_NAME); found:" >&2; echo "$$strays" >&2; exit 1; \
+	fi
 # Bounds one run of a window manager tool in a scenario check, so a hung tool fails `make test`
 # instead of blocking it. Each run takes milliseconds.
 WM_SCENARIO_TIMEOUT := 30
@@ -257,6 +268,7 @@ help:
 	@echo "  make hooks        - Enable tracked git hooks (run once per clone)"
 	@echo "  make icons        - Regenerate the committed icon files"
 	@echo "  make bundle       - Create .app bundle"
+	@echo "  make bundle-check - Fail if the bundle holds any program but the app"
 	@echo "  make run          - Build, bundle, and run app"
 	@echo "  make stop         - Stop running app"
 	@echo "  make status       - Check if app is running"
@@ -306,7 +318,7 @@ help:
 
 build:
 	@echo "$(BLUE)Building $(APP_NAME)...$(NC)"
-	@swift build -c release
+	@$(RELEASE_BUILD)
 	@echo "$(GREEN)Build complete$(NC)"
 
 python-policy:
@@ -335,7 +347,7 @@ duplication:
 # passes its limit in benchmarks/baseline.json. See docs/PERFORMANCE.md.
 benchmark:
 	@echo "$(BLUE)Running the performance gate (release build)...$(NC)"
-	@swift build -c release
+	@$(RELEASE_BUILD)
 	@rm -f "$(BENCHMARK_RESULTS)"
 	@$(BENCHMARK_RUN)
 	@# Fails closed: a skipped or filtered-out test exits 0 without measuring anything.
@@ -346,7 +358,7 @@ benchmark:
 # diff of benchmarks/baseline.json, and commit it with the change that moved the numbers.
 # METRICS=name,name rewrites only those entries, so a new metric leaves the other limits alone.
 benchmark-baseline:
-	@swift build -c release
+	@$(RELEASE_BUILD)
 	@SWEETMX_BENCHMARK_RECORD="$(or $(METRICS),1)" $(BENCHMARK_RUN)
 
 # Read-only resource reading of the running app: CPU, wakeups, memory, disk I/O and disk space.
@@ -446,13 +458,6 @@ bundle: build $(ICON_BINARY)
 	@rm -rf "$(APP_BUNDLE)"
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP_BUNDLE)/Contents/MacOS/"
-	@# Allowlist, checked before signing: the app executable is the only program that ships.
-	@# A development tool in the bundle would ship a way to drive the window manager.
-	@extra="$$(ls -A "$(APP_BUNDLE)/Contents/MacOS" | grep -vx "$(APP_NAME)" || true)"; \
-	if [ -n "$$extra" ]; then \
-		echo "error: $(APP_BUNDLE)/Contents/MacOS holds more than $(APP_NAME) ($$extra); development tools such as $(WM_DEV_TOOLS) must not ship" >&2; \
-		rm -rf "$(APP_BUNDLE)"; exit 1; \
-	fi
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/"
 	@# Both icons ship: Assets.car gives macOS 26 the glass icon, and the committed
 	@# .icns stays for the Finder fallback and for the dmg, which reads it directly.
@@ -465,6 +470,9 @@ bundle: build $(ICON_BINARY)
 	@if [ -f "$(ENTITLEMENTS)" ]; then \
 		cp "$(ENTITLEMENTS)" "$(APP_BUNDLE)/Contents/Resources/"; \
 	fi
+	@# After the last copy and before signing, so no step can add a program unseen. A refused
+	@# bundle is dropped: it must never look finished.
+	@( $(BUNDLE_GUARD) ) || { rm -rf "$(APP_BUNDLE)"; exit 1; }
 	@# Seal the whole bundle: the linker signs only the binary, and macOS privacy grants
 	@# (paste permission, Screen Recording) never match a bundle whose resources are unsealed.
 	@# The setup script resolves the identity so a duplicate or a failed keychain query stops
@@ -480,6 +488,11 @@ bundle: build $(ICON_BINARY)
 	codesign --force --sign "$$identity" "$(APP_BUNDLE)"
 	@codesign --verify --strict "$(APP_BUNDLE)"
 	@echo "$(GREEN)Bundle created: $(APP_BUNDLE)$(NC)"
+
+# Judges an existing bundle with the guard that `make bundle` uses; changes nothing.
+bundle-check:
+	@$(BUNDLE_GUARD)
+	@echo "$(GREEN)Bundle holds only $(APP_NAME)$(NC)"
 
 run: stop bundle
 	@mkdir -p "$(LOG_DIR)"

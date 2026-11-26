@@ -123,12 +123,11 @@ rules:
   # reports, and it has no privacy redaction, so clipboard text could leak
   # (OWASP A09). App code logs through os.Logger with explicit privacy;
   # command-line scripts may still print.
-  # Exception, with reason: wm-sim and wmctl are command-line development
-  # tools whose standard output is their result. They never read the
-  # clipboard, and `make bundle` refuses a bundle that holds them, so their
-  # output cannot leak app content. The rule still covers the app and both
-  # window manager libraries (WMCore, WMPlatform); a new target under
-  # Sources/ is covered until it is named here.
+  # Exception, with reason: wm-sim is a command-line development tool, and
+  # standard output is its result. It is not in the app: `make bundle`
+  # refuses a bundle that holds any program but the app executable. The rule
+  # still covers the app, both window manager libraries (WMCore, WMPlatform),
+  # wmctl, and any new target under Sources/ until it is named here.
   - id: swift-console-output
     languages: [swift]
     severity: ERROR
@@ -138,7 +137,6 @@ rules:
         - Sources/
       exclude:
         - Sources/wm-sim/
-        - Sources/wmctl/
     pattern-either:
       - pattern: print(...)
       - pattern: debugPrint(...)
@@ -146,7 +144,18 @@ rules:
       - pattern: Swift.print(...)
       - pattern: Swift.debugPrint(...)
       - pattern: Swift.dump(...)
-      - pattern: NSLog(...)
+
+  # NSLog writes to the system log, not to standard output, with no privacy
+  # redaction. Its own rule, with no exception, so the standard-output
+  # exception above cannot open this path for any target.
+  - id: swift-unredacted-system-log
+    languages: [swift]
+    severity: ERROR
+    message: NSLog has no privacy redaction; log through os.Logger with a privacy level.
+    paths:
+      include:
+        - Sources/
+    pattern: NSLog(...)
 
   # These hardened-runtime exceptions let other code or a debugger load into
   # the process and read its memory, including the clipboard history.

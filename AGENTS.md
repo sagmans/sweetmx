@@ -17,7 +17,8 @@ by default; its switch is in the SweetMX menu and does nothing yet.
 | `wmctl` | Development tool. Will talk to a development build over a socket. | Foundation only |
 
 `wm-sim` and `wmctl` never ship: `make bundle` fails when `SweetMX.app` holds
-any program but the app executable. Keep shared window manager code in `WMCore`
+any program but the app executable, and the release build makes the app only.
+Keep shared window manager code in `WMCore`
 so `make duplication` stays clean.
 
 Scenario checks prove each window manager step. `scripts/wm-scenarios.sh` runs

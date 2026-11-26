@@ -35,66 +35,51 @@ swift build --product "$CONTROL" >&2
 bin_dir=$(swift build --show-bin-path)
 
 failures=0
+# The stream must be empty; a scenario names this where it expects no output.
+readonly EMPTY='-'
 
-# run_tool <name> <expected exit> <tool> [args...]: leaves stdout and stderr
-# in the scratch folder for the caller to compare.
-run_tool() {
-	local name=$1 expected=$2 status=0
-	shift 2
-	timeout "$RUN_SECONDS" "$bin_dir/$1" "${@:2}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
-	if [[ "$status" -ne "$expected" ]]; then
-		printf '❌ wm-scenarios: %s: exit %s, expected %s (%s)\n' "$name" "$status" "$expected" "$*" >&2
-		cat "$scratch/stderr" >&2
-		failures=$((failures + 1))
-		return 1
+# stream_matches <file> <pattern | EMPTY>: every line must match the pattern.
+stream_matches() {
+	if [[ "$2" == "$EMPTY" ]]; then
+		[[ ! -s "$1" ]]
+	else
+		[[ -s "$1" ]] && ! grep -Evqx -- "$2" "$1"
 	fi
 }
 
-# expect <name> <file> <pattern | empty>: an empty pattern means the stream
-# must be empty.
-expect() {
-	local name=$1 file="$scratch/$2" pattern=$3
-	if [[ -z "$pattern" ]]; then
-		[[ ! -s "$file" ]] && return 0
-	elif grep -Eqx -- "$pattern" "$file"; then
+# scenario <name> <exit> <stdout pattern> <stderr pattern> <tool> [args...]
+# One call per scenario, so a new one is one line and every scenario judges
+# the exit status and both streams: none can pass on a partial check.
+scenario() {
+	local name=$1 expected=$2 out_pattern=$3 err_pattern=$4 status=0 problems=''
+	shift 4
+	timeout "$RUN_SECONDS" "$bin_dir/$1" "${@:2}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
+	[[ "$status" -eq "$expected" ]] || problems+=" exit=$status (expected $expected)"
+	stream_matches "$scratch/stdout" "$out_pattern" || problems+=' stdout'
+	stream_matches "$scratch/stderr" "$err_pattern" || problems+=' stderr'
+	if [[ -z "$problems" ]]; then
+		printf 'ok   %s\n' "$name"
 		return 0
 	fi
-	printf '❌ wm-scenarios: %s: unexpected %s:\n' "$name" "$2" >&2
-	cat "$file" >&2
 	failures=$((failures + 1))
+	{
+		printf '❌ wm-scenarios: %s: unexpected%s (%s)\n' "$name" "$problems" "$*"
+		printf -- '--- stdout\n'
+		cat "$scratch/stdout"
+		printf -- '--- stderr\n'
+		cat "$scratch/stderr"
+	} >&2
 }
 
-pass() {
-	printf 'ok   %s\n' "$1"
-}
+readonly USAGE_LINE="usage: ${SIMULATOR} .*"
 
-name="$SIMULATOR --version prints the version"
-if run_tool "$name" "$EXIT_OK" "$SIMULATOR" --version; then
-	before=$failures
-	expect "$name" stdout "$VERSION_LINE"
-	expect "$name" stderr ''
-	[[ "$failures" -eq "$before" ]] && pass "$name"
-fi
-
+scenario "$SIMULATOR --version prints the version" "$EXIT_OK" "$VERSION_LINE" "$EMPTY" "$SIMULATOR" --version
 # A tool that ignored a bad command line would let a later scenario pass
 # without running it.
-for bad in '' '--no-such-flag' '--version extra'; do
-	name="$SIMULATOR rejects '${bad}'"
-	# shellcheck disable=SC2086  # split on purpose: each word is one argument
-	if run_tool "$name" "$EXIT_USAGE" "$SIMULATOR" $bad; then
-		before=$failures
-		expect "$name" stdout ''
-		expect "$name" stderr "usage: ${SIMULATOR} .*"
-		[[ "$failures" -eq "$before" ]] && pass "$name"
-	fi
-done
-
-name="$CONTROL reports that it has no commands yet"
-if run_tool "$name" "$EXIT_UNAVAILABLE" "$CONTROL" query; then
-	before=$failures
-	expect "$name" stdout ''
-	[[ "$failures" -eq "$before" ]] && pass "$name"
-fi
+scenario "$SIMULATOR rejects no argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR"
+scenario "$SIMULATOR rejects an unknown flag" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --no-such-flag
+scenario "$SIMULATOR rejects an extra argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --version extra
+scenario "$CONTROL says it has no commands yet" "$EXIT_UNAVAILABLE" "$EMPTY" "${CONTROL}: no commands yet.*" "$CONTROL" query
 
 if [[ "$failures" -gt 0 ]]; then
 	printf '❌ wm-scenarios: %s scenario check(s) failed\n' "$failures" >&2
