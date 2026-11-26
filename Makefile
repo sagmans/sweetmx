@@ -182,10 +182,13 @@ RELEASE_BUILD := swift build -c release --product $(APP_NAME)
 WM_DEV_TOOLS := wm-sim wmctl
 # Lists what the bundle must not hold: any program but the app executable, and any file named as
 # a development tool. Deny by default, so a later copy step cannot ship a second program unseen.
-BUNDLE_STRAYS = find "$(APP_BUNDLE)" ! -type d \( -perm -u+x $(foreach tool,$(WM_DEV_TOOLS),-o -name "$(tool)") \) \
+BUNDLE_STRAYS = find "$(APP_BUNDLE)" ! -type d \( -perm -u+x -o -perm -g+x -o -perm -o+x $(foreach tool,$(WM_DEV_TOOLS),-o -name "$(tool)") \) \
 	! -path "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
 # One command for `make bundle` and `make bundle-check`, so both judge a bundle the same way.
-BUNDLE_GUARD = strays="$$($(BUNDLE_STRAYS))" || exit 1; \
+# A bundle with no app executable is refused too, so a pass always means "the app and no more".
+BUNDLE_GUARD = [ -x "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)" ] \
+		|| { echo "error: $(APP_BUNDLE) has no $(APP_NAME) executable" >&2; exit 1; }; \
+	strays="$$($(BUNDLE_STRAYS))" || exit 1; \
 	if [ -n "$$strays" ]; then \
 		echo "error: $(APP_BUNDLE) may hold one program, $(APP_NAME); found:" >&2; echo "$$strays" >&2; exit 1; \
 	fi

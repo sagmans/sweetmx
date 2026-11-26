@@ -11,6 +11,7 @@ readonly SIMULATOR=wm-sim
 readonly CONTROL=wmctl
 # The model version is semantic; the exact value lives only in WMCore.
 readonly VERSION_LINE="^${SIMULATOR} [0-9]+\.[0-9]+\.[0-9]+\$"
+readonly USAGE_LINE="usage: ${SIMULATOR} .*"
 # sysexits.h values the tools use: a bad command line, and a service that is
 # not there yet.
 readonly EXIT_OK=0
@@ -43,7 +44,11 @@ stream_matches() {
 	if [[ "$2" == "$EMPTY" ]]; then
 		[[ ! -s "$1" ]]
 	else
-		[[ -s "$1" ]] && ! grep -Evqx -- "$2" "$1"
+		# grep exits 1 when no line fails the pattern. Any other status,
+		# such as 2 for a pattern that does not compile, must not pass.
+		local status=0
+		grep -Evqx -- "$2" "$1" || status=$?
+		[[ -s "$1" && "$status" -eq 1 ]]
 	fi
 }
 
@@ -70,8 +75,6 @@ scenario() {
 		cat "$scratch/stderr"
 	} >&2
 }
-
-readonly USAGE_LINE="usage: ${SIMULATOR} .*"
 
 scenario "$SIMULATOR --version prints the version" "$EXIT_OK" "$VERSION_LINE" "$EMPTY" "$SIMULATOR" --version
 # A tool that ignored a bad command line would let a later scenario pass

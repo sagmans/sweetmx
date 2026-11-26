@@ -198,7 +198,9 @@ make wm-scenarios
 | Scenario                                  | Passes when                                   |
 | ----------------------------------------- | --------------------------------------------- |
 | `wm-sim --version`                        | It prints `wm-sim` and the model version.     |
-| `wm-sim` with no or an unknown argument   | It prints the usage text and exits 64.        |
+| `wm-sim` with no argument                 | It prints the usage text and exits 64.        |
+| `wm-sim` with an unknown flag             | It prints the usage text and exits 64.        |
+| `wm-sim --version` with an extra argument | It prints the usage text and exits 64.        |
 | `wmctl query`                             | It says it has no commands yet and exits 69.  |
 
 The model version is `WMVersion.current` in `Sources/WMCore`. It is apart from
