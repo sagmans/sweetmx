@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardManager: ClipboardManager?
     private var statusItem: NSStatusItem?
     private let loginItemMenu = LoginItemMenu()
+    private let windowManagerMenu = WindowManagerMenu()
     private let pasteRelaunch = PasteRelaunchMenu()
     private let statusBadge = StatusBadgeView()
 
@@ -148,6 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: MenuTitle.shortcuts, action: nil, keyEquivalent: ""))
         addStatusAction(to: menu, title: MenuTitle.retry, action: #selector(retryShortcutsFromMenu))
+        menu.addItem(.separator())
+        // Its own group: it is a third function beside app search and the clipboard history, not
+        // a setting of either.
+        menu.addItem(windowManagerMenu.item)
         menu.addItem(.separator())
         menu.addItem(loginItemMenu.item)
         addStatusAction(to: menu, title: MenuTitle.quit, action: #selector(quitFromMenu))
