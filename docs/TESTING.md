@@ -53,6 +53,11 @@ SweetMX/
 │   ├── UI/                  # SwiftUI views, design tokens, and caches
 │   └── ...                  # Core application files
 │
+├── Sources/WMCore/          # Window manager model (Foundation only)
+├── Sources/WMPlatform/      # Real windows, keys and touches
+├── Sources/wm-sim/          # Development tool: runs the model, no window needed
+├── Sources/wmctl/           # Development tool: control client (no commands yet)
+│
 ├── Tests/SweetMXTests/
 │   ├── Mocks/               # Mock implementations for testing
 │   │   ├── MockFileSystem.swift
@@ -78,6 +83,7 @@ SweetMX/
 │
 └── scripts/
     ├── setup-hooks          # Sets core.hooksPath=.githooks for this clone
+    ├── wm-scenarios.sh      # Window manager scenario checks (run by make test)
     ├── coverage-report.sh   # Local coverage reporting
     └── coverage-badge.py    # Coverage badge generation
 ```
@@ -173,6 +179,46 @@ Accessibility tests ensure the UI works with VoiceOver and keyboard navigation.
 | Test File                  | What It Tests                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------ |
 | `AccessibilityTests.swift` | Row labels and hints, panel label, hosted AppKit controls, keyboard navigation |
+
+### Window manager scenario checks
+
+The window manager lives in four targets beside the app. It is off by default.
+
+| Target       | Role                                                        |
+| ------------ | ----------------------------------------------------------- |
+| `WMCore`     | The model. Foundation only; it never touches a real window. |
+| `WMPlatform` | Real windows, keys and touches.                             |
+| `wm-sim`     | Development tool that runs the model with no permission.    |
+| `wmctl`      | Development tool that will control a development build.     |
+
+A scenario check runs a tool as a user does and compares its output and its
+exit status with the expected result. The checks are in
+`scripts/wm-scenarios.sh`. `make test` runs them after the Swift suite, so the
+`pre-push` hook runs them on each pushed tip. To run them alone:
+
+```bash
+make wm-scenarios
+```
+
+| Scenario                                  | Passes when                                   |
+| ----------------------------------------- | --------------------------------------------- |
+| `wm-sim --version`                        | It prints `wm-sim` and the model version.     |
+| `wm-sim` with no or an unknown argument   | It prints the usage text and exits 64.        |
+| `wmctl query`                             | It says it has no commands yet and exits 69.  |
+
+The model version is `WMVersion.current` in `Sources/WMCore`. It is apart from
+the app version in `Resources/Info.plist`.
+
+`wm-sim` and `wmctl` are never in `SweetMX.app`. `make bundle` fails when the
+bundle holds any program but the app executable.
+
+### Window Manager switch (manual check)
+
+Run a dev build (`make run`) and open the SweetMX menu. **Window Manager** must
+show with no checkmark. Choose it: a checkmark appears and nothing else
+changes. Quit and start SweetMX again: the checkmark is still there. Choose it
+again to turn it off. App search and the clipboard history must work the same
+in both states.
 
 ### Paste permission (manual check)
 
@@ -499,11 +545,15 @@ tests and performance gate once on each pushed tip. The gate is described in
 
 `make swift-sast` runs the rules in `.semgrep-swift.yml` on `Sources`,
 `Resources` and the Swift scripts. Inline `nosemgrep` comments are ignored;
-an exception must be a reviewed `paths.exclude` in the rule. Semgrep's Swift
+an exception must be a reviewed `paths.exclude` in the rule. One exists: the
+console output rule leaves out `Sources/wm-sim` and `Sources/wmctl`, because a
+command-line tool gives its result on standard output. Semgrep's Swift
 parser skips some newer syntax; the scan lists each skipped span and fails
 when a span is longer than `MAX_SKIPPED_LINES` in `scripts/swift-sast.sh`.
 `make duplication` fails on any duplicated block in production Swift; tests
-are not scanned.
+are not scanned. Format, lint, SAST and duplication all read the whole
+`Sources` folder, so they cover the window manager targets too. `make test`
+ends with the window manager scenario checks.
 
 The Swift checks need macOS; on other systems they fail with a clear reason.
 
