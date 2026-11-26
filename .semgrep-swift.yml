@@ -123,6 +123,12 @@ rules:
   # reports, and it has no privacy redaction, so clipboard text could leak
   # (OWASP A09). App code logs through os.Logger with explicit privacy;
   # command-line scripts may still print.
+  # Exception, with reason: wm-sim and wmctl are command-line development
+  # tools whose standard output is their result. They never read the
+  # clipboard, and `make bundle` refuses a bundle that holds them, so their
+  # output cannot leak app content. The rule still covers the app and both
+  # window manager libraries (WMCore, WMPlatform); a new target under
+  # Sources/ is covered until it is named here.
   - id: swift-console-output
     languages: [swift]
     severity: ERROR
@@ -130,6 +136,9 @@ rules:
     paths:
       include:
         - Sources/
+      exclude:
+        - Sources/wm-sim/
+        - Sources/wmctl/
     pattern-either:
       - pattern: print(...)
       - pattern: debugPrint(...)

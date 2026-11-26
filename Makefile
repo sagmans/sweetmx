@@ -1,4 +1,4 @@
-.PHONY: build test python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
+.PHONY: build test wm-scenarios python-policy format format-check swiftformat-version swiftlint-version lint lint-scripts hooks bundle run stop status install uninstall clean icons \
         audit-swift-dependencies swift-sast duplication benchmark benchmark-baseline profile-app profile-trace \
         local-signing sign verify-sign check-adhoc notarize check-notarize check-notarize-creds \
         notary-check zip dmg dist tag tag-push release ship cask cask-render cask-check _gh-release \
@@ -156,6 +156,8 @@ MENU_BAR_ICONS := Resources/MenuBarIconTemplate.png Resources/MenuBarIconTemplat
 MISE_TOOL := bash scripts/mise-tool.sh
 # Defined before the path lists below, which expand it at once (:=).
 PROFILE_SCRIPT := scripts/profile-app.swift
+# `Sources` holds every target, the window manager ones included (WMCore, WMPlatform, wm-sim,
+# wmctl), so format, lint, SAST and duplication cover a new target folder with no change here.
 SWIFT_STYLE_PATHS := Package.swift Sources Tests $(PROFILE_SCRIPT) $(LOCAL_INSTALLER) $(ICON_GENERATOR)
 # The performance gate builds with optimizations, as the shipped app is, plus -enable-testing so
 # the benchmarks can reach internal types. Its own scratch path keeps those flags from forcing a
@@ -173,6 +175,15 @@ BENCHMARK_TIMEOUT := 900
 BENCHMARK_RUN = SWEETMX_BENCHMARK=1 SWEETMX_BENCHMARK_BINARY="$(CURDIR)/$(RELEASE_BINARY)" \
 	SWEETMX_BENCHMARK_RESULTS="$(CURDIR)/$(BENCHMARK_RESULTS)" \
 	timeout $(BENCHMARK_TIMEOUT) swift test $(BENCHMARK_FLAGS) --filter $(BENCHMARK_FILTER)
+# Development tools that `swift build` puts beside the app executable. Named here only for the
+# bundle guard's message; the guard itself allows nothing but the app executable.
+WM_DEV_TOOLS := wm-sim wmctl
+# Bounds one run of a window manager tool in a scenario check, so a hung tool fails `make test`
+# instead of blocking it. Each run takes milliseconds.
+WM_SCENARIO_TIMEOUT := 30
+# One command for `make test` and `make wm-scenarios`, so both run the same checks. A shell
+# fragment, not a sub-make, so `make -n test` stays a dry run.
+WM_SCENARIOS = WM_SCENARIO_TIMEOUT=$(WM_SCENARIO_TIMEOUT) bash scripts/wm-scenarios.sh
 # The app's Application Support folder; must match AppDataLocation.folderName in the app.
 DATA_FOLDER_NAME := $(APP_NAME)
 # Sampling window of `make profile-app`; long enough to span many clipboard polls.
@@ -233,7 +244,8 @@ help:
 	@echo ""
 	@echo "$(GREEN)Development:$(NC)"
 	@echo "  make build        - Build release binary"
-	@echo "  make test         - Run test suite"
+	@echo "  make test         - Run test suite and the window manager scenarios"
+	@echo "  make wm-scenarios - Run only the window manager scenario checks"
 	@echo "  make benchmark    - Performance gate against benchmarks/baseline.json"
 	@echo "  make benchmark-baseline - Record new limits (METRICS=a,b for some only)"
 	@echo "  make profile-app  - CPU, wakeups, memory and disk of the running app"
@@ -303,7 +315,12 @@ python-policy:
 test: python-policy
 	@echo "$(BLUE)Running tests...$(NC)"
 	@swift test
+	@$(WM_SCENARIOS)
 	@echo "$(GREEN)All tests passed$(NC)"
+
+# Scenario checks drive the window manager tools as a user does; see the script header.
+wm-scenarios:
+	@$(WM_SCENARIOS)
 
 audit-swift-dependencies:
 	@bash scripts/audit-swift-dependencies.sh
@@ -429,6 +446,13 @@ bundle: build $(ICON_BINARY)
 	@rm -rf "$(APP_BUNDLE)"
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
 	@cp "$(BUILD_DIR)/$(APP_NAME)" "$(APP_BUNDLE)/Contents/MacOS/"
+	@# Allowlist, checked before signing: the app executable is the only program that ships.
+	@# A development tool in the bundle would ship a way to drive the window manager.
+	@extra="$$(ls -A "$(APP_BUNDLE)/Contents/MacOS" | grep -vx "$(APP_NAME)" || true)"; \
+	if [ -n "$$extra" ]; then \
+		echo "error: $(APP_BUNDLE)/Contents/MacOS holds more than $(APP_NAME) ($$extra); development tools such as $(WM_DEV_TOOLS) must not ship" >&2; \
+		rm -rf "$(APP_BUNDLE)"; exit 1; \
+	fi
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/"
 	@# Both icons ship: Assets.car gives macOS 26 the glass icon, and the committed
 	@# .icns stays for the Finder fallback and for the dmg, which reads it directly.
