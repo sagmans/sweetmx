@@ -1,7 +1,6 @@
 # A resize at the smallest size. Passes when a window that a removal left
 # too small comes back to the limit, a request to shrink it more leaves it
-# as it is, and a request to grow it still works: the limit stops a border,
-# it never moves one back.
+# as it is, and a request to grow it still works.
 create
 create
 create

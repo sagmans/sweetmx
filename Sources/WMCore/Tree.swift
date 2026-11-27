@@ -53,8 +53,9 @@ extension Split {
 
     /// Moves the border between two children. Their combined weight stays the same, so no other
     /// child moves, and each keeps at least `minimumShare` (the mean weight is one). The limit only
-    /// stops a border: it never moves one against the direction the user asked for, whatever
-    /// rounding left in the weights.
+    /// stops a border: a weight that rounding left a last bit below it keeps what it has, so a
+    /// border never moves against the direction the user asked for. No scenario can show that
+    /// bit; the property run holds the rule within its tolerance.
     mutating func grow(_ index: Int, by amount: Double, takingFrom neighbor: Int) {
         let pair = children[index].weight + children[neighbor].weight
         let floor = Split.minimumShare

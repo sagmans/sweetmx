@@ -189,8 +189,8 @@ public struct Gaps: Equatable, Sendable {
 public struct Split: Equatable, Sendable {
     /// The weight of a child in a fresh split. Only the ratio between weights matters.
     static let unitWeight = 1.0
-    /// The smallest weight a resize leaves to a child, as a part of an equal share (the mean
-    /// weight). It is measured against the whole split and not against the two neighbors: a floor
+    /// The smallest weight a child has after any edit, as a part of an equal share (the mean
+    /// weight, which is one). It is measured against the whole split and not against the two neighbors: a floor
     /// that follows the pair lets two windows shrink in turn without end.
     static let minimumShare = 0.2
 
@@ -267,8 +267,8 @@ public struct WMState: Equatable, Sendable {
     public internal(set) var gaps: Gaps
     public internal(set) var nodeIDs: NodeIDSource
 
-    /// The starting state: one empty workspace. `screen` must be usable (finite, with an area);
-    /// the layout gives no frame on a screen that is not.
+    /// The starting state: one empty workspace. `screen` must be usable (see
+    /// `Rect.isUsable`); the layout gives no frame on a screen that is not.
     public init(screen: Rect, gaps: Gaps = .none) {
         grid = Grid()
         self.screen = screen

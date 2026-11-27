@@ -110,7 +110,8 @@ struct Fuzzer {
     /// A run is cut into one part for each of these, in order, and each part starts from an empty
     /// state. No gaps comes first: only there do the frames have to cover the whole screen. The
     /// rest are a usual config, an inner gap with no outer gap (the first box is then larger than
-    /// the screen), a gap larger than the screen, and a number near the end of the range.
+    /// the screen), a gap larger than the screen, and a number near the end of the range, which
+    /// the model takes as its largest gap.
     private static let gapSettings = [
         Gaps.none,
         Gaps(inner: 10, outer: 10),
