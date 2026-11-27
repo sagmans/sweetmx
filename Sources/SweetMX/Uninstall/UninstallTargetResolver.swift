@@ -55,7 +55,7 @@ nonisolated struct UninstallTargetResolver: Sendable {
         if fileSystem.resolvingSymlinks(bundleURL).path.hasPrefix(Self.systemPathPrefix) {
             return .failure(.systemApp)
         }
-        guard let info = readInfo(of: bundleURL),
+        guard let info = Self.readInfo(of: bundleURL, fileSystem: fileSystem),
               let bundleID = info[Self.bundleIDKey] as? String,
               Self.isWellFormed(bundleID: bundleID)
         else { return .failure(.unreadableBundleID) }
@@ -85,9 +85,18 @@ nonisolated struct UninstallTargetResolver: Sendable {
         }
     }
 
-    private func readInfo(of bundleURL: URL) -> [String: Any]? {
+    /// The related-item scan reads the bundle ID of a second app with the same name; sharing this
+    /// reader keeps one rule for what counts as a readable, well formed ID.
+    static func bundleID(ofBundleAt bundleURL: URL, fileSystem: FileSystemProtocol) -> String? {
+        guard let id = readInfo(of: bundleURL, fileSystem: fileSystem)?[bundleIDKey] as? String,
+              isWellFormed(bundleID: id)
+        else { return nil }
+        return id
+    }
+
+    private static func readInfo(of bundleURL: URL, fileSystem: FileSystemProtocol) -> [String: Any]? {
         let plistURL = Self.infoPlistComponents.reduce(bundleURL) { $0.appendingPathComponent($1) }
-        guard let data = fileSystem.readData(at: plistURL, maxBytes: Self.infoPlistMaxBytes) else { return nil }
+        guard let data = fileSystem.readData(at: plistURL, maxBytes: infoPlistMaxBytes) else { return nil }
         return (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any]
     }
 
