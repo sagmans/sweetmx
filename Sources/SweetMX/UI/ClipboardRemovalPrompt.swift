@@ -20,7 +20,7 @@ private struct SingleClipConfirmationView: View {
                 Text(DesignTokens.Copy.deleteClip)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .launcherButtonStyle(prominent: true)
             .tint(DesignTokens.Palette.destructiveAction)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)

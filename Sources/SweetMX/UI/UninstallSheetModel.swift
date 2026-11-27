@@ -70,6 +70,9 @@ final class UninstallSheetModel {
         target?.displayName ?? itemName(URL(fileURLWithPath: bundlePath).deletingPathExtension())
     }
 
+    /// Told the title once the load decides it, so the sheet window's title and VoiceOver label stop
+    /// asking a question the sheet cannot offer.
+    @ObservationIgnored var onTitleChange: (String) -> Void = { _ in }
     /// Asks the sheet host to close the sheet; set by `UninstallPrompt`.
     @ObservationIgnored var onClose: () -> Void = {}
     /// Told the content size whenever it changes (rows arrived, results replaced the list), so the
@@ -88,6 +91,7 @@ final class UninstallSheetModel {
 
     /// Stands for the home folder in shown paths, as Finder and Terminal write it.
     private static let homeAbbreviation = "~"
+    private static let pathSeparator = "/"
     /// Only web pages may open from a notice; the vendor table holds nothing else, and this keeps it so.
     private static let allowedLinkScheme = "https"
 
@@ -172,12 +176,20 @@ final class UninstallSheetModel {
         )
     }
 
-    /// The bundle path with the home folder shortened to `~`, like the spec's sheet.
+    /// The bundle path with the home folder shortened to `~`, like the spec's sheet, and the file name
+    /// cleaned as in `fullPath`.
     func displayPath(_ url: URL) -> String {
         let home = dependencies.fileSystem.homeDirectoryForCurrentUser.standardizedFileURL.path
-        let path = url.path
-        guard path == home || path.hasPrefix(home + "/") else { return path }
+        let path = fullPath(url)
+        guard url.path == home || url.path.hasPrefix(home + Self.pathSeparator) else { return path }
         return Self.homeAbbreviation + path.dropFirst(home.count)
+    }
+
+    /// The whole path for help text, with its file name through the resolver's cleaning: a file name can
+    /// hold direction or control characters that would make the shown path lie about the item.
+    func fullPath(_ url: URL) -> String {
+        let parent = url.deletingLastPathComponent().path
+        return (parent.hasSuffix(Self.pathSeparator) ? parent : parent + Self.pathSeparator) + itemName(url)
     }
 
     /// A file's name as the sheets show it, through the resolver's cleaning.
@@ -249,7 +261,10 @@ final class UninstallSheetModel {
     private nonisolated static func index(
         _ apps: [ApplicationInfo]?, listing target: UninstallTarget
     ) -> RelatedItemScanner.InstalledApps {
-        guard let apps, apps.contains(where: { $0.bundlePath == target.bundleURL.path }) else { return .unknown }
+        let ownPath = RelatedItemScanner.standardPath(target.bundleURL.path)
+        guard let apps, apps.contains(where: { RelatedItemScanner.standardPath($0.bundlePath) == ownPath }) else {
+            return .unknown
+        }
         return .listed(apps)
     }
 
@@ -266,6 +281,7 @@ final class UninstallSheetModel {
                 .contains { !$0.isTerminated }
         }
         phase = .ready
+        onTitleChange(title)
     }
 
     // MARK: - Choosing

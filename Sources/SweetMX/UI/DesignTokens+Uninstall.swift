@@ -151,6 +151,7 @@ extension DesignTokens.Copy {
         case .protectedByMacOS: "Protected by macOS."
         case .identityNotConfirmed: "The app’s signature does not confirm which files are its own."
         case .secondCopyInstalled: "Another copy of this app uses these files."
+        case .appListNotReady: "SweetMX has not finished listing your apps, so it cannot tell whether another app uses these files."
         }
     }
 
@@ -228,8 +229,6 @@ extension DesignTokens.Metrics {
     static let uninstallSheetWidth: CGFloat = 520
     /// Tallest the related list grows before it scrolls, so the sheet stays near the launcher's height.
     static let uninstallListMaxHeight: CGFloat = 220
-    /// Shortest the list gets when notices take the room, so at least two rows stay visible.
-    static let uninstallListMinHeight: CGFloat = 96
     /// Tallest the whole sheet may be: the launcher panel's height, so the sheet never hangs below it.
     static let uninstallSheetMaxHeight: CGFloat = DesignTokens.Layout.appPanelSize.height
     /// Width of the kind column of a row; fits the longest kind and the "Listed by Homebrew" mark.

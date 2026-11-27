@@ -15,6 +15,9 @@ nonisolated struct RelatedItem: Equatable, Identifiable, Sendable {
     /// Why a row cannot be ticked. One reason per row; the scanner picks it in a fixed order.
     enum Lock: Equatable, Sendable {
         case nameNotCertain, protectedByMacOS, identityNotConfirmed, secondCopyInstalled
+        /// The app index has not loaded, so the scan cannot rule out another app using the item. Its
+        /// own reason, so the sheet does not claim a second copy it has not seen.
+        case appListNotReady
     }
 
     let url: URL

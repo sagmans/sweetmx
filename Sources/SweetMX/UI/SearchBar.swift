@@ -81,7 +81,7 @@ struct SearchBar: View {
             Image(systemName: paused ? DesignTokens.Symbol.resume : DesignTokens.Symbol.pause)
                 .contentTransition(reduceMotion ? .identity : .symbolEffect(.replace))
         }
-        .captureButtonStyle()
+        .launcherButtonStyle()
         .tint(paused ? DesignTokens.Palette.warning : nil)
         .help(paused ? DesignTokens.Copy.capturePausedHelp : DesignTokens.Copy.captureActiveHelp)
         .accessibilityLabel(paused ? DesignTokens.Copy.resumeCapture : DesignTokens.Copy.pauseCapture)

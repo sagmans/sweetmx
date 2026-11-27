@@ -30,15 +30,21 @@ private struct GlassSurface<S: Shape>: ViewModifier {
     }
 }
 
-/// Gives the pause control the glass style, or a plain bordered one in snapshot mode where glass is off.
-private struct CaptureButtonStyle: ViewModifier {
+/// The glass button style of the launcher's own controls (the pause control, the clipboard prompt and
+/// the uninstall sheets), or a plain bordered one in snapshot mode where glass would sample whatever is
+/// behind the test window.
+/// One style, so every button on the launcher panel reads alike.
+private struct LauncherButtonStyle: ViewModifier {
+    /// The filled style, for the one action a prompt is about.
+    let prominent: Bool
     @Environment(\.launcherSnapshotMode) private var snapshotMode
 
     func body(content: Content) -> some View {
-        if snapshotMode {
-            content.buttonStyle(.bordered)
-        } else {
-            content.buttonStyle(.glass)
+        switch (prominent, snapshotMode) {
+        case (true, false): content.buttonStyle(.glassProminent)
+        case (false, false): content.buttonStyle(.glass)
+        case (true, true): content.buttonStyle(.borderedProminent)
+        case (false, true): content.buttonStyle(.bordered)
         }
     }
 }
@@ -53,8 +59,8 @@ extension View {
         modifier(GlassSurface(glass: glass, shape: shape, snapshotFill: snapshotFill))
     }
 
-    /// The capture control's button style; see `CaptureButtonStyle`.
-    func captureButtonStyle() -> some View {
-        modifier(CaptureButtonStyle())
+    /// The launcher's button style; see `LauncherButtonStyle`.
+    func launcherButtonStyle(prominent: Bool = false) -> some View {
+        modifier(LauncherButtonStyle(prominent: prominent))
     }
 }

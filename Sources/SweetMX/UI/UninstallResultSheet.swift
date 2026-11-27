@@ -32,7 +32,7 @@ struct UninstallResultView: View {
                 Spacer(minLength: 0)
                 // The only button and the default one: Return closes, because nothing is left to decide.
                 Button(DesignTokens.Copy.uninstallDone) { model.close() }
-                    .buttonStyle(.borderedProminent)
+                    .launcherButtonStyle(prominent: true)
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.large)
             }
@@ -65,7 +65,7 @@ private struct UninstallResultRow: View {
             kindMark: nil,
             title: model.itemName(result.url),
             path: model.displayPath(result.url),
-            fullPath: result.url.path,
+            fullPath: model.fullPath(result.url),
             detail: model.sentence(for: result),
             reveal: canReveal ? result.url : nil,
             model: model

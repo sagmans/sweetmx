@@ -51,12 +51,13 @@ private struct UninstallConfirmationView: View {
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
     }
 
-    /// The list's height limit: what is left of the panel height after everything else, between the
-    /// minimum that keeps two rows visible and the usual maximum.
+    /// The list's height limit: what is left of the panel height after everything else, up to the usual
+    /// maximum. It may shrink to nothing: the sheet staying within the launcher wins over showing rows,
+    /// and the choice and the button still say what moves.
     private var listLimit: CGFloat {
         let room = DesignTokens.Metrics.uninstallSheetMaxHeight - 2 * DesignTokens.Metrics.uninstallSheetPadding
             - (contentHeight - listHeight)
-        return min(max(room, DesignTokens.Metrics.uninstallListMinHeight), DesignTokens.Metrics.uninstallListMaxHeight)
+        return min(max(room, 0), DesignTokens.Metrics.uninstallListMaxHeight)
     }
 
     private var header: some View {
@@ -69,7 +70,7 @@ private struct UninstallConfirmationView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .help(model.bundlePath)
+                .help(model.fullPath(URL(fileURLWithPath: model.bundlePath)))
             if model.appIsRunning, !model.isBlocked {
                 Text(DesignTokens.Copy.uninstallAppRunning(model.displayName))
                     .font(DesignTokens.Typography.uninstallDetail)
@@ -171,7 +172,7 @@ private struct UninstallConfirmationView: View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             Spacer(minLength: 0)
             Button(DesignTokens.Copy.cancel) { model.close() }
-                .buttonStyle(.bordered)
+                .launcherButtonStyle()
                 .disabled(!model.canCancel)
             if model.isBlocked {
                 exitButton
@@ -181,7 +182,7 @@ private struct UninstallConfirmationView: View {
                 } label: {
                     Text(model.confirmTitle)
                 }
-                .buttonStyle(.borderedProminent)
+                .launcherButtonStyle(prominent: true)
                 .tint(DesignTokens.Palette.destructiveAction)
                 .disabled(!model.canConfirm)
                 .help(DesignTokens.Copy.uninstallConfirmHelp)
@@ -197,12 +198,12 @@ private struct UninstallConfirmationView: View {
     private var exitButton: some View {
         if let page = model.blockingPage {
             Button(DesignTokens.Copy.uninstallOpenInstructions) { model.openInstructions(page) }
-                .buttonStyle(.borderedProminent)
+                .launcherButtonStyle(prominent: true)
         } else {
             Button(DesignTokens.Copy.uninstallShowInFinder) {
                 model.showInFinder(URL(fileURLWithPath: model.bundlePath))
             }
-            .buttonStyle(.borderedProminent)
+            .launcherButtonStyle(prominent: true)
         }
     }
 }
@@ -265,7 +266,7 @@ private struct UninstallRowView: View {
             kindMark: matchMark,
             title: nil,
             path: path,
-            fullPath: row.item.url.path,
+            fullPath: model.fullPath(row.item.url),
             detail: detail,
             reveal: row.isLocked ? row.item.url : nil,
             model: model
@@ -485,7 +486,7 @@ struct UninstallRowLayout: View {
             Spacer(minLength: 0)
             if let reveal {
                 Button(DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(reveal) }
-                    .buttonStyle(.bordered)
+                    .launcherButtonStyle()
                     .controlSize(.small)
                     .disabled(model.phase == .moving)
             }

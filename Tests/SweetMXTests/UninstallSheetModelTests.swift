@@ -307,6 +307,34 @@ final class UninstallSheetModelTests: XCTestCase {
         ready.launcher.hide()
     }
 
+    /// The window title and its spoken label follow the loaded title, so a blocked sheet stops asking.
+    func testLoadReportsTheRefusedTitleToTheWindow() async {
+        world.addSystemExtension()
+        world.launcher.show(mode: .applications)
+        let model = UninstallSheetModel(bundlePath: Path.app, launcher: world.launcher, dependencies: world.dependencies)
+        var reported: [String] = []
+        model.onTitleChange = { reported.append($0) }
+
+        model.start()
+        await model.loadTask?.value
+
+        XCTAssertEqual(reported, [DesignTokens.Copy.uninstallRefusedTitle(Path.displayName)])
+    }
+
+    /// A related file's name can carry a right-to-left override that would make the shown path lie.
+    func testShownPathsCleanTheFileName() async {
+        let override = "\u{202E}"
+        let spoofed = Path.home + "/Library/Application Support/" + Path.displayName + override + "fdp.exe"
+        world.put(spoofed, size: nil)
+
+        let model = await world.loadedModel()
+        let url = URL(fileURLWithPath: spoofed)
+
+        XCTAssertFalse(model.fullPath(url).contains(override))
+        XCTAssertFalse(model.displayPath(url).contains(override))
+        XCTAssertTrue(model.fullPath(url).hasPrefix(Path.home + "/Library/Application Support/"))
+    }
+
     func testBlockingNoticeTurnsConfirmOff() async {
         world.addBundleIDItems()
         world.addSystemExtension()
@@ -342,7 +370,7 @@ final class UninstallSheetModelTests: XCTestCase {
 
         XCTAssertEqual(model.rows.count, 3)
         XCTAssertTrue(model.rows.allSatisfy(\.isLocked))
-        XCTAssertTrue(model.rows.allSatisfy { $0.item.lock == .secondCopyInstalled })
+        XCTAssertTrue(model.rows.allSatisfy { $0.item.lock == .appListNotReady })
         XCTAssertFalse(model.canChoose)
     }
 
@@ -352,7 +380,17 @@ final class UninstallSheetModelTests: XCTestCase {
 
         let model = await world.loadedModel()
 
-        XCTAssertEqual(model.rows.first?.item.lock, .secondCopyInstalled)
+        XCTAssertEqual(model.rows.first?.item.lock, .appListNotReady)
+    }
+
+    func testIndexListingTheTargetUnderAnUnnormalizedPathCountsAsListed() async {
+        let unnormalized = Path.appFolder + "/./" + Path.appFileName
+        world.installedApps = [ApplicationInfo(name: Path.displayName, bundlePath: unnormalized)]
+        world.addNameMatch()
+
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(model.rows.map(\.isLocked), [false])
     }
 
     func testIndexListingTheTargetLeavesUniqueRowsSelectable() async {

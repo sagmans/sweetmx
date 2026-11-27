@@ -135,9 +135,12 @@ final class UninstallSheetSnapshotTests: XCTestCase {
     }
 
     /// A fresh world per look, so one render's ticks never leak into the next.
-    private func freshWorld(_ arrange: (UninstallSheetFixture) throws -> Void) rethrows -> UninstallSheetFixture {
+    private func freshWorld(
+        bundleID: String = Path.bundleID,
+        _ arrange: (UninstallSheetFixture) throws -> Void
+    ) rethrows -> UninstallSheetFixture {
         world?.launcher.hide()
-        world = UninstallSheetFixture()
+        world = UninstallSheetFixture(bundleID: bundleID)
         try arrange(world)
         return world
     }
@@ -178,6 +181,21 @@ final class UninstallSheetSnapshotTests: XCTestCase {
                 $0.addEveryBundleIDItem()
                 $0.addContainer()
                 try $0.addHomebrew()
+            }
+            return await world.loadedModel()
+        }
+    }
+
+    /// The tallest header: a vendor notice, a Homebrew notice and the administrator line above rows.
+    /// The list gives up its height first, so the sheet still fits the panel.
+    func testSnapshotTwoNoticesAndAdministratorFitThePanel() async throws {
+        try await assertSheet {
+            let world = try freshWorld(bundleID: Path.vendorBundleID) {
+                $0.addBundleIDItems()
+                $0.addNameMatch()
+                $0.addContainer()
+                try $0.addHomebrew()
+                $0.makeAppFolderReadOnly()
             }
             return await world.loadedModel()
         }

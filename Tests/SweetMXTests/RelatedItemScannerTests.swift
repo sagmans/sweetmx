@@ -238,7 +238,36 @@ final class RelatedItemScannerTests: XCTestCase {
         let items = RelatedItemScanner(fileSystem: fileSystem).scan(target(), installedApps: .unknown, homebrew: nil)
 
         XCTAssertEqual(Set(items.map(\.url.path)), [cache, named])
-        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
+        XCTAssertTrue(items.allSatisfy { $0.lock == .appListNotReady })
+    }
+
+    /// An unknown app list never outranks a confirmed problem: identity first, then macOS protection.
+    func testUnknownIndexRanksBelowIdentityAndProtection() {
+        let cache = lib("Caches", Fixture.bundleID)
+        let container = lib("Containers", Fixture.bundleID)
+        put(cache)
+        put(container)
+        let scanner = RelatedItemScanner(fileSystem: fileSystem)
+
+        var items = scanner.scan(target(), installedApps: .unknown, homebrew: nil)
+        XCTAssertEqual(item(items, container)?.lock, .protectedByMacOS)
+        XCTAssertEqual(item(items, cache)?.lock, .appListNotReady)
+
+        items = scanner.scan(target(confirmed: false), installedApps: .unknown, homebrew: nil)
+        XCTAssertTrue(items.allSatisfy { $0.lock == .identityNotConfirmed })
+    }
+
+    /// A listed copy of the target under an unnormalized path is still the target, not a second copy.
+    func testListedTargetWithUnnormalizedPathIsNotASecondCopy() {
+        let cache = lib("Caches", Fixture.bundleID)
+        put(cache)
+        let unnormalized = (Fixture.bundlePath as NSString).deletingLastPathComponent + "/./"
+            + (Fixture.bundlePath as NSString).lastPathComponent
+        let listed = ApplicationInfo(name: Fixture.displayName, bundlePath: unnormalized)
+
+        let items = scan(target(), others: [listed])
+
+        XCTAssertNil(item(items, cache)?.lock)
     }
 
     func testLockPrecedence() throws {

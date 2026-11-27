@@ -97,19 +97,23 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// `installedApps` is the app index, to detect a shared name or bundle ID; when it is unknown, the
-    /// scan fails closed and treats both as present.
+    /// scan fails closed and locks every row it would otherwise offer.
     func scan(_ target: UninstallTarget, installedApps: InstalledApps, homebrew: HomebrewReceipt?) -> [RelatedItem] {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
         let library = URL(fileURLWithPath: fileSystem.homeDirectoryForCurrentUser.path)
             .appendingPathComponent(Self.libraryFolder)
         let secondCopy: Bool
         let nameIsCertain: Bool
+        let listIsReady: Bool
         switch installedApps {
         case .unknown:
-            secondCopy = true
+            secondCopy = false
             nameIsCertain = false
+            listIsReady = false
         case let .listed(apps):
-            let others = apps.filter { $0.bundlePath != target.bundleURL.path }
+            listIsReady = true
+            let ownPath = Self.standardPath(target.bundleURL.path)
+            let others = apps.filter { Self.standardPath($0.bundlePath) != ownPath }
             secondCopy = hasSecondCopy(of: target, among: others)
             nameIsCertain = target.displayName.count >= Self.minimumNameLength
                 && !others.contains { $0.name.caseInsensitiveCompare(target.displayName) == .orderedSame }
@@ -131,6 +135,7 @@ nonisolated struct RelatedItemScanner: Sendable {
                     identityConfirmed: target.identityConfirmed,
                     secondCopy: secondCopy,
                     isProtected: isProtected,
+                    listIsReady: listIsReady,
                     nameNotCertain: candidate.isUncertain
                 )
             )
@@ -138,7 +143,9 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// Precedence is fixed so the reason a row shows never depends on dictionary or scan order.
-    private func lock(identityConfirmed: Bool, secondCopy: Bool, isProtected: Bool, nameNotCertain: Bool) -> RelatedItem.Lock? {
+    private func lock(
+        identityConfirmed: Bool, secondCopy: Bool, isProtected: Bool, listIsReady: Bool, nameNotCertain: Bool
+    ) -> RelatedItem.Lock? {
         if !identityConfirmed {
             return .identityNotConfirmed
         }
@@ -148,10 +155,19 @@ nonisolated struct RelatedItemScanner: Sendable {
         if isProtected {
             return .protectedByMacOS
         }
+        if !listIsReady {
+            return .appListNotReady
+        }
         if nameNotCertain {
             return .nameNotCertain
         }
         return nil
+    }
+
+    /// One spelling per bundle path, so `/Applications/./X.app` and `/Applications/X.app` count as the
+    /// same app. Shared with the sheet, which checks that the index lists the target.
+    static func standardPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private static func isProtected(_ url: URL, library: URL) -> Bool {

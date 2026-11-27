@@ -77,6 +77,10 @@ enum UninstallPrompt {
         sheet.setContentSize(host.fittingSize)
 
         sheetModel.onSizeChange = { [weak sheet] size in fit(sheet, to: size) }
+        sheetModel.onTitleChange = { [weak sheet] newTitle in
+            sheet?.title = newTitle
+            sheet?.setAccessibilityLabel(newTitle)
+        }
         sheetModel.onClose = { [weak sheet] in
             guard let sheet, let parent = sheet.sheetParent else { return }
             parent.endSheet(sheet, returnCode: .cancel)

@@ -31,6 +31,11 @@ final class UninstallSheetFixture {
         static let homebrewZapPath = "~/Library/WebKit/com.example.sample.helper"
         /// Folders besides Preferences and Caches where the scan finds bundle ID items.
         static let extraBundleIDFolders = ["HTTPStorages", "WebKit", "Logs", "Application Support"]
+        static let preferences = "Preferences"
+        static let caches = "Caches"
+        static let plistExtension = "plist"
+        /// Matches the Docker vendor rule, so the sheet shows a vendor notice.
+        static let vendorBundleID = "com.docker.sample"
     }
 
     enum Size {
@@ -47,13 +52,16 @@ final class UninstallSheetFixture {
     let identity = MockCodeIdentity()
     let finder = MockFinderTrash()
     let launcher: LauncherModel
+    /// The target's bundle ID; the bundle ID items are named after it.
+    let bundleID: String
     var finderHandOffEnabled = false
     /// The app index; the target itself by default, as a loaded index lists it. Nil means no index.
     var installedApps: [ApplicationInfo]? = [ApplicationInfo(name: Path.displayName, bundlePath: Path.app)]
     /// Pinned so sizes read the same on every Mac.
     static let locale = Locale(identifier: "en_US")
 
-    init() {
+    init(bundleID: String = Path.bundleID) {
+        self.bundleID = bundleID
         launcher = LauncherModel(
             workspace: workspace,
             pasteboard: MockPasteboard(),
@@ -63,11 +71,11 @@ final class UninstallSheetFixture {
         fileSystem.writableDirectories.insert(Path.appFolder)
         fileSystem.addFile(at: Path.app, isDirectory: true)
         let info = try? PropertyListSerialization.data(
-            fromPropertyList: [Self.plistKey: Path.bundleID], format: .xml, options: 0
+            fromPropertyList: [Self.plistKey: bundleID], format: .xml, options: 0
         )
         fileSystem.addFile(at: Path.infoPlist, contents: info)
         fileSystem.allocatedSizes[Path.app] = Size.app
-        identity.setIdentifier(Path.bundleID, forBundleAt: URL(fileURLWithPath: Path.app))
+        identity.setIdentifier(bundleID, forBundleAt: URL(fileURLWithPath: Path.app))
     }
 
     var appURL: URL {
@@ -113,15 +121,18 @@ final class UninstallSheetFixture {
 
     /// Settings and a cache: two selectable bundle ID rows.
     func addBundleIDItems() {
-        put(Path.settings, size: Size.settings)
-        put(Path.cache, size: Size.cache)
+        let library = URL(fileURLWithPath: Path.library)
+        let settings = library.appendingPathComponent(Path.preferences)
+            .appendingPathComponent(bundleID).appendingPathExtension(Path.plistExtension)
+        put(settings.path, size: Size.settings)
+        put(library.appendingPathComponent(Path.caches).appendingPathComponent(bundleID).path, size: Size.cache)
     }
 
     /// Every Library folder the scan reads by bundle ID, for a list longer than the sheet can show.
     func addEveryBundleIDItem() {
         addBundleIDItems()
         for folder in Path.extraBundleIDFolders {
-            put(Path.library + "/" + folder + "/" + Path.bundleID, size: Size.settings)
+            put(Path.library + "/" + folder + "/" + bundleID, size: Size.settings)
         }
     }
 
