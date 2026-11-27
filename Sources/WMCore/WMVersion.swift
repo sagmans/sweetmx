@@ -5,5 +5,5 @@
 /// manager stays off by default, which is why it does not follow the app release number.
 public enum WMVersion {
     /// Below 1.0 until the window manager is safe for daily use.
-    public static let current = "0.1.0"
+    public static let current = "0.2.0"
 }
