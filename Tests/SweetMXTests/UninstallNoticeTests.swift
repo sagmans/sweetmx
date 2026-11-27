@@ -9,6 +9,7 @@ final class UninstallNoticeTests: XCTestCase {
         static let bundlePath = "/Applications/Sample Pro.app"
         static let appFileName = "Sample Pro.app"
         static let bundleID = "com.x.app"
+        static let libraryPath = "/Applications/Sample Pro.app/Contents/Library"
         static let extensionsPath = "/Applications/Sample Pro.app/Contents/Library/SystemExtensions"
         static let caskroom = "/opt/homebrew/Caskroom"
         static let token = "sample-pro"
@@ -38,7 +39,11 @@ final class UninstallNoticeTests: XCTestCase {
         )
     }
 
+    private struct ListingFailure: Error {}
+
     private func addSystemExtension() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .directory
+        fileSystem.itemKinds[Fixture.extensionsPath] = .directory
         let folder = URL(fileURLWithPath: Fixture.extensionsPath)
         fileSystem.directoryContents[folder] = [folder.appendingPathComponent("Sample.systemextension")]
     }
@@ -79,8 +84,43 @@ final class UninstallNoticeTests: XCTestCase {
     }
 
     func testEmptySystemExtensionsFolderDoesNotBlock() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .directory
+        fileSystem.itemKinds[Fixture.extensionsPath] = .directory
         fileSystem.directoryContents[URL(fileURLWithPath: Fixture.extensionsPath)] = []
         XCTAssertTrue(notices(target()).isEmpty)
+    }
+
+    func testMissingSystemExtensionsFolderDoesNotBlock() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .directory
+        XCTAssertTrue(notices(target()).isEmpty)
+    }
+
+    func testListingErrorBlocks() {
+        addSystemExtension()
+        fileSystem.contentsOfDirectoryError = ListingFailure()
+        XCTAssertEqual(notices(target()), [.blocked(reason: .systemExtension, page: nil)])
+    }
+
+    func testSymlinkedSystemExtensionsBlocks() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .directory
+        fileSystem.itemKinds[Fixture.extensionsPath] = .symbolicLink
+        XCTAssertEqual(notices(target()), [.blocked(reason: .systemExtension, page: nil)])
+    }
+
+    func testSymlinkedLibraryBlocks() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .symbolicLink
+        XCTAssertEqual(notices(target()), [.blocked(reason: .systemExtension, page: nil)])
+    }
+
+    func testSystemExtensionsThatIsNotADirectoryBlocks() {
+        fileSystem.itemKinds[Fixture.libraryPath] = .directory
+        fileSystem.itemKinds[Fixture.extensionsPath] = .other
+        XCTAssertEqual(notices(target()), [.blocked(reason: .systemExtension, page: nil)])
+    }
+
+    func testUnreadableKindBlocks() {
+        fileSystem.itemKindError = ListingFailure()
+        XCTAssertEqual(notices(target()), [.blocked(reason: .systemExtension, page: nil)])
     }
 
     func testSystemExtensionListingIsOneEntryDeep() {
@@ -92,14 +132,14 @@ final class UninstallNoticeTests: XCTestCase {
     func testDockerDesktopPointsToItsUninstaller() throws {
         XCTAssertEqual(
             notices(target(bundleID: Fixture.dockerID)),
-            try [.vendorUninstaller(vendor: "Docker Desktop", page: page(Fixture.dockerPage))]
+            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage))]
         )
     }
 
     func testKarabinerPrefixPointsToItsUninstaller() throws {
         XCTAssertEqual(
             notices(target(bundleID: Fixture.karabinerID)),
-            try [.vendorUninstaller(vendor: "Karabiner-Elements", page: page(Fixture.karabinerPage))]
+            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorKarabinerElements, page: page(Fixture.karabinerPage))]
         )
     }
 
@@ -109,10 +149,20 @@ final class UninstallNoticeTests: XCTestCase {
         XCTAssertTrue(result.allSatisfy(\.blocksRemoval))
     }
 
-    func testVendorMatchIsCaseSensitiveAndExactForDocker() {
-        XCTAssertTrue(notices(target(bundleID: "COM.DOCKER.DOCKER")).isEmpty)
-        XCTAssertTrue(notices(target(bundleID: Fixture.dockerID + ".helper")).isEmpty)
-        XCTAssertTrue(notices(target(bundleID: "org.pqrs.karabiner")).isEmpty)
+    func testHelperAndVariantIDsAreCovered() throws {
+        XCTAssertEqual(
+            notices(target(bundleID: "at.obdev.LittleSnitchConfiguration")),
+            try [.blocked(reason: .securitySoftware, page: page(Fixture.snitchPage))]
+        )
+        XCTAssertEqual(
+            notices(target(bundleID: Fixture.dockerID + ".helper")),
+            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage))]
+        )
+    }
+
+    func testLookalikeIDsGetNoNotice() {
+        XCTAssertTrue(notices(target(bundleID: "com.dockerx.app")).isEmpty)
+        XCTAssertTrue(notices(target(bundleID: "org.pqrsx.Karabiner")).isEmpty)
     }
 
     func testHomebrewCommandUsesTheToken() throws {
@@ -140,7 +190,7 @@ final class UninstallNoticeTests: XCTestCase {
         let result = try notices(target(bundleID: Fixture.dockerID), homebrew: receipt())
         XCTAssertEqual(result, try [
             .blocked(reason: .systemExtension, page: nil),
-            .vendorUninstaller(vendor: "Docker Desktop", page: page(Fixture.dockerPage)),
+            .vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage)),
             .homebrew(command: "brew uninstall --cask \(Fixture.token)"),
         ])
     }

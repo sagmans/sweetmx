@@ -37,7 +37,7 @@ nonisolated enum UninstallNotice: Equatable, Sendable {
     ) -> [UninstallNotice] {
         var blocks: [UninstallNotice] = []
         var vendors: [UninstallNotice] = []
-        if hasSystemExtension(target, fileSystem: fileSystem) {
+        if mayHoldSystemExtension(target, fileSystem: fileSystem) {
             blocks.append(.blocked(reason: .systemExtension, page: nil))
         }
         for rule in VendorRule.table where rule.matches(target.bundleID) {
@@ -47,33 +47,55 @@ nonisolated enum UninstallNotice: Equatable, Sendable {
                 vendors.append(.vendorUninstaller(vendor: rule.vendor, page: rule.page))
             }
         }
-        let brew = homebrew.map { [UninstallNotice.homebrew(command: homebrewCommand(token: $0.token))] } ?? []
+        let brew = homebrew.map { [UninstallNotice.homebrew(command: homebrewCommand(for: $0))] } ?? []
         return blocks + vendors + brew
     }
 
+    private static let libraryPath = "Contents/Library"
     private static let systemExtensionsPath = "Contents/Library/SystemExtensions"
     /// One entry is enough to know the folder is not empty; the folder is never read deeper.
     private static let systemExtensionsListLimit = 1
-    /// The token comes from a validated receipt, so it cannot carry shell syntax into the text a
-    /// person may copy.
     private static let homebrewCommandFormat = "brew uninstall --cask %@"
 
-    private static func homebrewCommand(token: String) -> String {
-        String(format: homebrewCommandFormat, token)
+    /// Takes the receipt, not a string, so only a token that `HomebrewReceipt.find` validated can
+    /// reach text a person may copy into a terminal.
+    private static func homebrewCommand(for receipt: HomebrewReceipt) -> String {
+        String(format: homebrewCommandFormat, receipt.token)
     }
 
-    private static func hasSystemExtension(_ target: UninstallTarget, fileSystem: FileSystemProtocol) -> Bool {
+    /// Fails closed: only a folder that is missing or lists empty clears the app. A listing error, a
+    /// link or a plain file in the way could hide an extension, and a missing block is the harmful
+    /// mistake because the extension cannot be removed once the app is gone.
+    private static func mayHoldSystemExtension(_ target: UninstallTarget, fileSystem: FileSystemProtocol) -> Bool {
+        let library = target.bundleURL.appendingPathComponent(libraryPath)
         let folder = target.bundleURL.appendingPathComponent(systemExtensionsPath)
-        let entries = try? fileSystem.contentsOfDirectory(
+        switch kind(of: library, fileSystem) {
+        case .missing: return false
+        case .directory: break
+        default: return true
+        }
+        switch kind(of: folder, fileSystem) {
+        case .missing: return false
+        case .directory: break
+        default: return true
+        }
+        guard let entries = try? fileSystem.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil, options: [], limit: systemExtensionsListLimit
-        )
-        return !(entries ?? []).isEmpty
+        ) else { return true }
+        return !entries.isEmpty
+    }
+
+    /// An unreadable kind is reported as `.other`, which callers treat as a block.
+    private static func kind(of url: URL, _ fileSystem: FileSystemProtocol) -> FileItemKind {
+        (try? fileSystem.itemKind(at: url)) ?? .other
     }
 }
 
 /// One product whose removal needs a vendor page, kept in a single table so adding a vendor is a
-/// row, not new logic. Matching is on the target's bundle ID, case-sensitive, because a bundle ID
-/// is an exact name and a looser match could warn on, or block, an unrelated app.
+/// row, not new logic. Matching is deliberately broad and case-insensitive: vendors ship helper and
+/// variant apps under one family of bundle IDs with mixed case, and a notice that matches too much
+/// only adds a harmless warning, while one that matches too little lets a half removal through.
+/// Rule values are stored lowercased and compared with the lowercased bundle ID.
 nonisolated struct VendorRule: Sendable {
     enum Match: Sendable {
         case exact(String)
@@ -87,28 +109,35 @@ nonisolated struct VendorRule: Sendable {
     let blocksRemoval: Bool
 
     func matches(_ bundleID: String) -> Bool {
+        let id = bundleID.lowercased()
         switch match {
-        case let .exact(id): bundleID == id
-        case let .prefix(prefix): bundleID.hasPrefix(prefix)
+        case let .exact(value): return id == value
+        case let .prefix(prefix): return id.hasPrefix(prefix)
         }
     }
 
-    /// Only a page that was read belongs here; verified against each vendor's own page and the
-    /// public Homebrew cask definition.
+    /// Only a page that was read belongs here. Each row says how its ID was verified.
     static let table: [VendorRule] = [
-        // https://docs.docker.com/desktop/uninstall/
+        // Page: https://docs.docker.com/desktop/uninstall/
+        // ID: read locally from the installed Docker.app Info.plist (`com.docker.docker`); the
+        // trailing dot also covers its helper apps.
         VendorRule(
-            match: .exact("com.docker.docker"), vendor: "Docker Desktop",
+            match: .prefix("com.docker."), vendor: DesignTokens.Copy.vendorDockerDesktop,
             page: url("https://docs.docker.com/desktop/uninstall/"), blocksRemoval: false
         ),
-        // https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/
+        // Page: https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/
+        // ID: public Homebrew cask definition (karabiner-elements.rb) names
+        // `org.pqrs.Karabiner-Elements.Settings`, `org.pqrs.Karabiner-Menu` and similar.
         VendorRule(
-            match: .prefix("org.pqrs.Karabiner"), vendor: "Karabiner-Elements",
+            match: .prefix("org.pqrs.karabiner"), vendor: DesignTokens.Copy.vendorKarabinerElements,
             page: url("https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/"), blocksRemoval: false
         ),
-        // https://help.obdev.at/littlesnitch6/intro-uninstall
+        // Page: https://help.obdev.at/littlesnitch6/intro-uninstall
+        // ID: public Homebrew cask definition (little-snitch.rb) quits `at.obdev.littlesnitch`; the
+        // same cask lists helper IDs such as `at.obdev.LittleSnitchConfiguration`, so matching is
+        // case-insensitive.
         VendorRule(
-            match: .prefix("at.obdev.littlesnitch"), vendor: "Little Snitch",
+            match: .prefix("at.obdev.littlesnitch"), vendor: DesignTokens.Copy.vendorLittleSnitch,
             page: url("https://help.obdev.at/littlesnitch6/intro-uninstall"), blocksRemoval: true
         ),
     ]

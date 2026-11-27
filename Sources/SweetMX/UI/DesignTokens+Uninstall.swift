@@ -11,3 +11,11 @@ extension DesignTokens.Timing {
     /// How long Finder gets to move one item, including time for a person to type a password.
     static let finderTrashTimeout: TimeInterval = 120
 }
+
+/// Product names the notices show; they are proper names, kept here so the sheet and its tests read
+/// one source.
+extension DesignTokens.Copy {
+    nonisolated static let vendorDockerDesktop = "Docker Desktop"
+    nonisolated static let vendorKarabinerElements = "Karabiner-Elements"
+    nonisolated static let vendorLittleSnitch = "Little Snitch"
+}
