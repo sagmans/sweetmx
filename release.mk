@@ -504,7 +504,7 @@ cask-check:
 # Write the exact file that `make cask` would publish; publish nothing.
 cask-render:
 	@mkdir -p "$(CASK_RENDER_DIR)"
-	@$(HOMEBREW_CASK_SCRIPT) render "$(CASK_RENDER_DIR)/$(notdir $(HOMEBREW_CASK_PATH))"
+	@$(HOMEBREW_CASK_SCRIPT) render "$(CASK_RENDER_DIR)/$(HOMEBREW_CASK_TOKEN).rb"
 
 # ==============================================================================
 # SHIP - Complete Release Pipeline

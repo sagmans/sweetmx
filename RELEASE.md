@@ -473,9 +473,9 @@ make cask-check
 ```
 
 `make cask-check` checks the address in the template and runs `brew style`
-on it. It needs no release, and
-it runs before each push of this repository, so a mistake in the template
-stops before a release. The tap runs the same check when `make cask` pushes.
+on it. It needs no release, and it runs before each push of this repository,
+so a mistake in the template stops before a release. The tap runs the same
+check when `make cask` pushes.
 
 To see the exact file for a version that is released, run
 `make cask-render VERSION=1.1.2`. It writes `.build/release/cask/sweetmx.rb`

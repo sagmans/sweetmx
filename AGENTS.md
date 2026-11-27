@@ -81,6 +81,6 @@ lizard and markdownlint-cli2, plus actionlint and zizmor when a push changes
 workflow files. A missing tool blocks the hook.
 The Swift checks also need `jq`, `curl`, and `timeout`. The cask check needs
 `brew`; a new Homebrew style rule can block a push until the cask template
-is corrected. Install the tools
-from `mise.toml` and a uv-managed Python 3.11 or newer before running the
-hooks. Pin validation uses Python's TOML reader offline.
+is corrected. Install the tools from `mise.toml` and a uv-managed Python 3.11
+or newer before running the hooks. Pin validation uses Python's TOML reader
+offline.

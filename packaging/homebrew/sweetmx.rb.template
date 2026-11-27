@@ -1,8 +1,9 @@
 # The SweetMX cask is kept in the sweetmx repository, in packaging/homebrew.
 # `make cask` there fills in the release version and the disk image checksum
 # and replaces the copy in the Homebrew tap at each release. Change the cask
-# in the sweetmx repository, not in the tap.
-cask "sweetmx" do
+# in the sweetmx repository, not in the tap. The cask token and the bundle ID
+# are filled in from the Makefile values.
+cask "@TOKEN@" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
@@ -22,12 +23,12 @@ cask "sweetmx" do
 
   # The global hotkeys stay registered while the app runs, so it must stop
   # before its bundle is removed.
-  uninstall quit: "com.sagmans.sweetmx"
+  uninstall quit: "@BUNDLE_ID@"
 
   # Clips, recent apps, and preferences are user data: they go only when the
   # user asks with `--zap`, never on a plain uninstall or an upgrade.
   zap trash: [
     "~/Library/Application Support/SweetMX",
-    "~/Library/Preferences/com.sagmans.sweetmx.plist",
+    "~/Library/Preferences/@BUNDLE_ID@.plist",
   ]
 end

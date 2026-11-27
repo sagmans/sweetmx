@@ -130,18 +130,18 @@ GIT_NO_SUCH_REF := 2
 # Homebrew tap that serves the cask, in the form that `brew` takes.
 HOMEBREW_TAP := sagmans/tap
 HOMEBREW_CASK_TOKEN := sweetmx
-# Homebrew reads the tap <owner>/<name> from <owner>/homebrew-<name>, Casks/.
+# Homebrew reads the tap <owner>/<name> from <owner>/homebrew-<name>.
 HOMEBREW_TAP_REPO := $(dir $(HOMEBREW_TAP))homebrew-$(notdir $(HOMEBREW_TAP))
-HOMEBREW_CASK_PATH := Casks/$(HOMEBREW_CASK_TOKEN).rb
 # The cask is kept here and filled in at each release; see the file header.
-HOMEBREW_CASK_TEMPLATE := packaging/homebrew/sweetmx.rb.template
+HOMEBREW_CASK_TEMPLATE := packaging/homebrew/$(HOMEBREW_CASK_TOKEN).rb.template
 # One flow for every cask step; see the script header. The local disk image
 # is compared when it is there at run time, so the pipeline checks its own
 # build and a later `make cask` from a clean clone still works.
 HOMEBREW_CASK_SCRIPT = CASK_VERSION="$(VERSION)" CASK_TEMPLATE="$(HOMEBREW_CASK_TEMPLATE)" \
+	CASK_TOKEN="$(HOMEBREW_CASK_TOKEN)" CASK_BUNDLE_ID="$(BUNDLE_ID)" \
 	CASK_REPO_URL="$(REPO_URL)" CASK_TEAM_ID="$(TEAM_ID)" \
 	CASK_LOCAL_DMG="$(DMG_PATH)" \
-	CASK_TAP_REPO="$(HOMEBREW_TAP_REPO)" CASK_TAP_PATH="$(HOMEBREW_CASK_PATH)" \
+	CASK_TAP_REPO="$(HOMEBREW_TAP_REPO)" \
 	bash scripts/publish-homebrew-cask.sh
 # Where `make cask-render` writes its preview. Not DIST_DIR: the preview is
 # not a release artifact, and its name carries no version.
