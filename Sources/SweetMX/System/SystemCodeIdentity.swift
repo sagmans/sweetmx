@@ -3,12 +3,17 @@ import Security
 
 /// Production code-signing reader built on the Security framework.
 ///
-/// Strict validation (all architectures, nested code) is used so a bundle with a tampered inner
-/// part reads as unsigned. A valid signature, even an ad-hoc one, carries an identifier anyone can
-/// choose, so the identifier only shows that the bundle's Info.plist ID and its signature agree.
-/// It does not show who the vendor is.
+/// The check proves only that the executable's signature is valid for every architecture and that
+/// it binds the bundle's Info.plist, so the Info.plist ID and the signed identifier agree. Resource
+/// files are not hashed: uninstall only needs the identifier, and hashing every sealed file of a
+/// large bundle can take minutes, three times per uninstall, while the sheet cannot be cancelled.
+/// A tampered resource file
+/// therefore still reads as signed. A valid signature, even an ad-hoc one, carries an identifier
+/// anyone can choose, so it does not show who the vendor is.
 public nonisolated struct SystemCodeIdentity: CodeIdentityProtocol {
-    private static let validityFlags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
+    private static let validityFlags = SecCSFlags(
+        rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate | kSecCSDoNotValidateResources
+    )
 
     public init() {}
 
