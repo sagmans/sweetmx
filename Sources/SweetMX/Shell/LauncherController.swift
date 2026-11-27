@@ -100,6 +100,7 @@ final class LauncherController: NSObject, NSWindowDelegate {
         }
         panel.makeKeyAndOrderFront(nil)
         panel.makeKey()
+        UninstallPrompt.presentPendingResults(for: model, over: panel)
     }
 
     /// Closes the panel and ends the session. A sheet is dismissed first, or it would be orphaned.

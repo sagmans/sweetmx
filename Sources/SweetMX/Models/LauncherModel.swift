@@ -45,6 +45,14 @@ final class LauncherModel {
     let apps: AppSearchModel
     /// Clipboard results, replay and capture state, split out for the same reason.
     let clips: ClipboardModel
+    /// System seams of the uninstall flow, built from the same workspace and file system as app search.
+    @ObservationIgnored let uninstall: UninstallDependencies
+
+    /// Results of an uninstall that finished after the launcher closed, kept so the person still learns
+    /// what moved; the shell shows them when the launcher opens next.
+    @ObservationIgnored var pendingUninstallResults: [UninstallItemResult]?
+    /// Footer line after an uninstall moved everything; one session long, like a launch failure.
+    private(set) var uninstallStatus: LauncherStatus?
 
     /// Whether the launcher is on screen, because background refreshes only matter while it is.
     private(set) var isPresented = false
@@ -75,9 +83,10 @@ final class LauncherModel {
         category: "launcher"
     )
 
-    init(apps: AppSearchModel, clips: ClipboardModel) {
+    init(apps: AppSearchModel, clips: ClipboardModel, uninstall: UninstallDependencies) {
         self.apps = apps
         self.clips = clips
+        self.uninstall = uninstall
         wireSubmodels()
         observeBackgroundUpdates()
     }
@@ -90,15 +99,17 @@ final class LauncherModel {
         eventSource: EventSourceProtocol = SystemEventSource(),
         fileSystem: FileSystemProtocol = SystemFileManager()
     ) {
+        let apps = AppSearchModel(
+            workspace: workspace,
+            fileSystem: fileSystem,
+            recents: RecentApplicationsStore(fileSystem: fileSystem)
+        )
         self.init(
-            apps: AppSearchModel(
-                workspace: workspace,
-                fileSystem: fileSystem,
-                recents: RecentApplicationsStore(fileSystem: fileSystem)
-            ),
+            apps: apps,
             clips: ClipboardModel(
                 replay: ClipboardReplay(workspace: workspace, pasteboard: pasteboard, eventSource: eventSource)
-            )
+            ),
+            uninstall: .live(workspace: workspace, fileSystem: fileSystem, apps: apps)
         )
     }
 
@@ -127,7 +138,7 @@ final class LauncherModel {
     var status: LauncherStatus? {
         switch mode {
         case .clipboard: clips.removalStatus ?? clips.accessStatus
-        case .applications: apps.launchStatus
+        case .applications: apps.launchStatus ?? uninstallStatus
         }
     }
 
@@ -151,6 +162,7 @@ final class LauncherModel {
         clips.setPanelVisible(true)
         clips.clearRemovalStatus()
         apps.clearLaunchStatus()
+        uninstallStatus = nil
         clips.beginReplay()
         enter(requested ?? .applications)
         isPresented = true
@@ -166,6 +178,7 @@ final class LauncherModel {
     /// The shell calls this when the launcher closes, so nothing in flight can touch a hidden launcher.
     func hide() {
         apps.clearLaunchStatus()
+        uninstallStatus = nil
         clips.endReplay()
         clips.setPanelVisible(false)
         cancelWork()
@@ -199,6 +212,7 @@ final class LauncherModel {
     private func updateQuery(_ text: String) {
         if text != query {
             apps.clearLaunchStatus()
+            uninstallStatus = nil
         }
         query = text
     }
@@ -420,6 +434,13 @@ final class LauncherModel {
     func removeClips(_ removal: ClipboardManager.HistoryRemoval) {
         guard isPresented, mode == .clipboard else { return }
         clips.remove(removal)
+    }
+
+    /// Reports a finished uninstall in the footer. Only app search shows it, because the app list is
+    /// what changed.
+    func showUninstallStatus(_ status: LauncherStatus) {
+        guard isPresented, mode == .applications else { return }
+        uninstallStatus = status
     }
 
     /// Pauses or resumes capture so the user can copy secrets without them entering history.

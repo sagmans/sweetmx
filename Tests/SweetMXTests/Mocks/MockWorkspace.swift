@@ -102,6 +102,13 @@ final class MockWorkspace: WorkspaceProtocol {
         revealInFinderCalls.append(url)
     }
 
+    /// URLs passed to `open`.
+    var openCalls: [URL] = []
+
+    func open(_ url: URL) {
+        openCalls.append(url)
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations
@@ -109,6 +116,7 @@ final class MockWorkspace: WorkspaceProtocol {
         openApplicationCalls = []
         runningApplicationsCalls = []
         revealInFinderCalls = []
+        openCalls = []
     }
 
     /// Returns the last application URL that was opened

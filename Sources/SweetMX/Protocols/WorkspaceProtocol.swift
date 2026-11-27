@@ -31,4 +31,7 @@ public protocol WorkspaceProtocol {
 
     /// Leave the item visible in Finder when SweetMX cannot remove it itself.
     func revealInFinder(_ url: URL)
+
+    /// Open a vendor's uninstall page, so a person who must use the vendor's own steps can read them.
+    func open(_ url: URL)
 }

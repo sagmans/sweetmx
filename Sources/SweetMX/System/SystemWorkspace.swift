@@ -25,4 +25,8 @@ public final class SystemWorkspace: WorkspaceProtocol {
     public func revealInFinder(_ url: URL) {
         workspace.activateFileViewerSelecting([url])
     }
+
+    public func open(_ url: URL) {
+        workspace.open(url)
+    }
 }
