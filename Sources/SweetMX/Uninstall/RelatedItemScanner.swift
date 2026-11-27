@@ -177,15 +177,23 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// A second install with the same bundle ID shares every file, so removing one app's data would
-    /// break the other. Every other indexed app is read, because a copy can carry any file name and
-    /// any Finder name (`Xcode-beta.app` beside `Xcode.app`). Fails closed when an ID cannot be read.
+    /// break the other. Every other indexed app whose ID can be read is compared, because a copy can
+    /// carry any file name and any Finder name (`Xcode-beta.app` beside `Xcode.app`).
+    ///
+    /// An app whose ID cannot be read counts as a possible copy only when it looks like the target:
+    /// the same listed name or file name, ignoring case. Flat and iOS-wrapper apps have no readable
+    /// Info.plist, and counting every one of them would lock every row of every app on such a Mac. A
+    /// renamed copy with an unreadable ID is still caught, by the system's own lookup by bundle ID.
     private func hasSecondCopy(of target: UninstallTarget, among others: [ApplicationInfo]) -> Bool {
-        others.contains { app in
-            // An unreadable ID cannot be ruled out, so it counts as shared.
+        let targetNames = [target.displayName, target.bundleURL.deletingPathExtension().lastPathComponent]
+        return others.contains { app in
             let otherID = UninstallTargetResolver.bundleID(
                 ofBundleAt: URL(fileURLWithPath: app.bundlePath), fileSystem: fileSystem
             )
-            return otherID == nil || otherID == target.bundleID
+            guard let otherID else {
+                return targetNames.contains { Self.sharesName(app, with: $0) }
+            }
+            return otherID == target.bundleID
         }
     }
 

@@ -139,7 +139,7 @@ A locked row stays on your Mac. The row shows the reason. It also has a
 | Reason shown | Why SweetMX locks the row |
 | ------------ | ------------------------- |
 | The app’s signature does not confirm which files are its own. | The code signature of the app does not match its bundle ID. SweetMX cannot prove who owns the files. |
-| Another copy of this app uses these files. | Another app has the same bundle ID, under any name, or SweetMX cannot read its ID. SweetMX reads the ID of every other app in the list and asks macOS for every copy it knows, also outside the app folders. Removal could break that app. |
+| Another copy of this app uses these files. | Another app has the same bundle ID, under any name. An app whose ID SweetMX cannot read counts only when it has the same name or file name. SweetMX reads the ID of every other app in the list and asks macOS for every copy it knows, also outside the app folders. Removal could break that app. |
 | Protected by macOS. | The row is in a sandbox folder. macOS guards these folders. SweetMX shows them but never opens them. |
 | SweetMX has not finished listing your apps, so it cannot tell whether another app uses these files. | The app list is not ready. SweetMX cannot rule out a second copy. |
 | Matches the app name only. Another app can use the same name. | The name is short, or another app has the same name. |

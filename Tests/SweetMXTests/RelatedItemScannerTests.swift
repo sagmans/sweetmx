@@ -324,9 +324,38 @@ final class RelatedItemScannerTests: XCTestCase {
 
     func testUnreadableBundleIDOfSameNamedAppLocksEverything() {
         put(lib("Caches", Fixture.bundleID))
-        let twin = ApplicationInfo(name: Fixture.displayName, bundlePath: "/Applications/Twin/Sample Pro.app")
+        put(lib("Preferences", Fixture.bundleID + ".plist"))
+        let twin = ApplicationInfo(name: Fixture.displayName, bundlePath: "/Applications/Twin/Twin Copy.app")
 
-        XCTAssertEqual(scan(target(), others: [twin]).first?.lock, .secondCopyInstalled)
+        let items = scan(target(), others: [twin])
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
+    }
+
+    /// A Finder name that differs is not enough to clear an unreadable app whose file name matches.
+    func testUnreadableBundleIDOfSameFileNameLocksEverything() {
+        put(lib("Caches", Fixture.bundleID))
+        put(lib("Preferences", Fixture.bundleID + ".plist"))
+        let twin = ApplicationInfo(name: "Localized Twin", bundlePath: "/Applications/Twin/sample pro.app")
+
+        let items = scan(target(), others: [twin])
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
+    }
+
+    /// A flat or iOS-wrapper app has no readable ID; unless it looks like the target it must not lock
+    /// the rows of every app on the Mac.
+    func testUnreadableBundleIDOfUnrelatedAppLeavesRowsFree() {
+        put(lib("Caches", Fixture.bundleID))
+        put(lib("Preferences", Fixture.bundleID + ".plist"))
+        let flat = ApplicationInfo(name: "Wrapped Game", bundlePath: "/Applications/Wrapped Game.app")
+
+        let items = scan(target(), others: [flat])
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.lock == nil })
     }
 
     /// An index that is not loaded cannot rule out a twin or a same-named app, so nothing is selectable.
