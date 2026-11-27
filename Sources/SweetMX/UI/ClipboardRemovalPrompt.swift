@@ -2,28 +2,6 @@ import AppKit
 import OSLog
 import SwiftUI
 
-/// Sheet host that can take keyboard focus without pulling SweetMX ahead of the app behind the launcher.
-private final class ConfirmationSheetPanel: NSPanel {
-    /// Required so Return and Escape reach the sheet even while SweetMX stays non-activating.
-    override var canBecomeKey: Bool {
-        true
-    }
-
-    /// A confirmation sheet is transient and must never take over the main-window role.
-    override var canBecomeMain: Bool {
-        false
-    }
-
-    /// Ensures Escape routed via accessibility or responder commands cancels the sheet just like the key monitor.
-    override func cancelOperation(_ sender: Any?) {
-        if let parent = sheetParent {
-            parent.endSheet(self, returnCode: .cancel)
-        } else {
-            super.cancelOperation(sender)
-        }
-    }
-}
-
 /// Single-action destructive prompt styled to match system Liquid Glass sheets while keeping a solid red
 /// primary button with white text. AppKit's `_NSAlertButton` ignores `bezelColor` and strips Return
 /// confirmation when `hasDestructiveAction` is set, so single-clip confirmation renders its own glass sheet.
