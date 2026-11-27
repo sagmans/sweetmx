@@ -8,6 +8,7 @@ enum LauncherKey: Equatable {
     case activate
     case copy
     case deleteClip(isRepeat: Bool)
+    case uninstall(isRepeat: Bool)
     case escape
 }
 
@@ -63,6 +64,8 @@ struct EditingShortcut: Equatable {
 final class LauncherPanel: NSPanel {
     /// Match the Command-modified letter for layouts that remap keys while Command is held.
     private static let deleteClipKey = "d"
+    /// Same reason as `deleteClipKey`: the character, not the key code, so remapped layouts still work.
+    private static let uninstallKey = "u"
 
     /// Set by the controller. Returning false lets the event continue to the responder chain, so a key
     /// the shell declines still behaves as it would in any window.
@@ -120,8 +123,12 @@ final class LauncherPanel: NSPanel {
                 && held == CopyClipShortcut.modifiers
             return isCopyChord ? .copy : nil
         default:
-            guard held == .command, event.characters?.lowercased() == deleteClipKey else { return nil }
-            return .deleteClip(isRepeat: event.isARepeat)
+            guard held == .command, let character = event.characters?.lowercased() else { return nil }
+            switch character {
+            case deleteClipKey: return .deleteClip(isRepeat: event.isARepeat)
+            case uninstallKey: return .uninstall(isRepeat: event.isARepeat)
+            default: return nil
+            }
         }
     }
 
@@ -134,8 +141,12 @@ final class LauncherPanel: NSPanel {
             return true
         }
         guard let textView = firstResponder as? NSTextView else { return true }
-        if case .deleteClip = key, !textView.isEditable {
-            return true
+        // A read-only preview can still ask for these two, which act on the highlighted row.
+        switch key {
+        case .deleteClip, .uninstall: if !textView.isEditable {
+                return true
+            }
+        default: break
         }
         return textView.isFieldEditor
     }

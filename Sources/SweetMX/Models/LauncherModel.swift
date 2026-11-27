@@ -430,6 +430,13 @@ final class LauncherModel {
         return selectedRowID as? UUID
     }
 
+    /// The highlighted app's bundle path, which is its row identity. Read from the selection so a prompt
+    /// opened by key or menu always names the row the person sees highlighted.
+    var selectedAppPath: String? {
+        guard mode == .applications else { return nil }
+        return selectedRowID as? String
+    }
+
     /// A confirmation only applies while its clipboard session is still open.
     func removeClips(_ removal: ClipboardManager.HistoryRemoval) {
         guard isPresented, mode == .clipboard else { return }

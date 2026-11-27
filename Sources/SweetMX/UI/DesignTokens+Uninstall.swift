@@ -25,6 +25,15 @@ extension DesignTokens.Copy {
 /// every sentence is short and plain, and each enum case maps to one sentence through an exhaustive
 /// switch: a new case fails to compile here instead of showing nothing.
 extension DesignTokens.Copy {
+    // MARK: Entry points
+
+    /// Context-menu title; the ellipsis says a confirmation follows.
+    static let uninstallMenu = "Uninstall…"
+    /// Footer hint for the uninstall key, with the key cap text and what VoiceOver says for it.
+    static let actionUninstall = "Uninstall"
+    static let uninstallKeyCap = "⌘U"
+    static let uninstallKeySpoken = "Command U"
+
     // MARK: Header and phases
 
     static func uninstallTitle(_ name: String) -> String {

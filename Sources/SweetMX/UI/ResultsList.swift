@@ -108,6 +108,7 @@ struct ResultsList: View {
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
                             .accessibilityHint(Self.rowHint(for: .applications))
+                            .contextMenu { appMenu(at: index, path: row.id) }
                         }
                     case .clipboard:
                         ForEach(clipRows.rows(model.clips.rows, generation: model.clips.rowsGeneration)) { indexed in
@@ -239,6 +240,15 @@ struct ResultsList: View {
     /// What Return does on a row, which depends on the list. Static for the same reason as the label.
     static func rowHint(for mode: SearchMode) -> String {
         mode == .clipboard ? DesignTokens.Copy.clipRowHint : DesignTokens.Copy.applicationRowHint
+    }
+
+    /// Selects the clicked row first, then takes the same path as ⌘U, so the sheet is always for the row
+    /// the person pointed at. The path is captured now, so a search landing meanwhile cannot retarget it.
+    private func appMenu(at index: Int, path: String) -> some View {
+        Button(DesignTokens.Copy.uninstallMenu) {
+            model.select(index)
+            UninstallPrompt.present(bundlePath: path, for: model, over: ClipboardRemovalPrompt.launcherWindow)
+        }
     }
 
     /// Menu items bind to the clip id so a live history update cannot retarget them to another row.

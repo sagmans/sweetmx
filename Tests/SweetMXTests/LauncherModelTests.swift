@@ -436,4 +436,60 @@ final class LauncherModelTests: XCTestCase {
 
         XCTAssertTrue(model.isPresented, "Esc must reach the input method, not dismiss the launcher")
     }
+
+    // MARK: - Uninstall Key
+
+    private static let uninstallCharacter = "u"
+    private static let backspaceKeyCode: UInt16 = 51
+    private static let uninstallKeyCode: UInt16 = 32
+
+    func testCommandUOpensNothingInClipboardMode() throws {
+        try seedClipboardHistory([ClipboardItem(content: "hello")])
+        let controller = LauncherController(model: model)
+        model.show(mode: .clipboard)
+        let event = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter, modifiers: .command)
+
+        let key = try XCTUnwrap(LauncherPanel.launcherKey(for: event))
+
+        XCTAssertEqual(controller.panel.keyHandler?(key), false, "Clipboard mode has no uninstall; the key must pass through")
+        XCTAssertNil(controller.panel.attachedSheet)
+        XCTAssertNil(model.selectedAppPath)
+    }
+
+    /// The brief's name is kept. In app mode the key is always consumed, even with nothing highlighted,
+    /// so a stray press never types a "u" into the search field; no prompt opens and no state changes.
+    func testCommandUPassesThroughWithoutSelection() throws {
+        let controller = LauncherController(model: model)
+        model.show()
+        model.select(-1)
+        XCTAssertNil(model.selectedAppPath)
+        let selectionBefore = model.selection
+        let event = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter, modifiers: .command)
+
+        let key = try XCTUnwrap(LauncherPanel.launcherKey(for: event))
+        let consumed = controller.panel.keyHandler?(key)
+
+        XCTAssertEqual(consumed, true)
+        XCTAssertNil(controller.panel.attachedSheet)
+        XCTAssertEqual(model.selection, selectionBefore)
+    }
+
+    func testCommandUIsReservedInAppMode() throws {
+        let command = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter, modifiers: .command)
+        XCTAssertEqual(LauncherPanel.launcherKey(for: command), .uninstall(isRepeat: false))
+
+        for extra: NSEvent.ModifierFlags in [.shift, .option, .control] {
+            let event = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter, modifiers: [.command, extra])
+            XCTAssertNil(LauncherPanel.launcherKey(for: event), "Command alone must match")
+        }
+        let plain = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter)
+        XCTAssertNil(LauncherPanel.launcherKey(for: plain), "A plain u is typing")
+    }
+
+    func testBackspaceStillEditsSearchField() throws {
+        let backspace = try keyEvent(Self.backspaceKeyCode, characters: "\u{7F}")
+        XCTAssertNil(LauncherPanel.launcherKey(for: backspace))
+        let commandBackspace = try keyEvent(Self.backspaceKeyCode, characters: "\u{7F}", modifiers: .command)
+        XCTAssertNil(LauncherPanel.launcherKey(for: commandBackspace))
+    }
 }

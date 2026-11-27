@@ -34,6 +34,9 @@ struct FooterBar: View {
     private var hints: some View {
         if hasSelection {
             hint(keys: [.symbol(DesignTokens.Symbol.returnKey)], action: model.mode == .clipboard ? DesignTokens.Copy.actionPaste : DesignTokens.Copy.actionOpen)
+            if model.selectedAppPath != nil {
+                hint(keys: [.text(DesignTokens.Copy.uninstallKeyCap, spokenAs: DesignTokens.Copy.uninstallKeySpoken)], action: DesignTokens.Copy.actionUninstall)
+            }
             if model.mode == .clipboard {
                 hint(keys: [.symbol(DesignTokens.Symbol.optionKey), .symbol(DesignTokens.Symbol.returnKey)], action: DesignTokens.Copy.actionCopy)
             }
