@@ -387,7 +387,7 @@ mocks, which you find in `Tests/SweetMXTests/Mocks/`.
 | Seam | Mock | What the mock lets a test script |
 | ---- | ---- | -------------------------------- |
 | `FileSystemProtocol`: `trashItem`, `isWritableDirectory`, `isSymbolicLink`, `resolvingSymlinks`, `readData`, `allocatedSize` | `MockFileSystem` | The result of each Trash move (`trashItemResults`), writable folders, links, resolved paths, file data and sizes. It records each call. |
-| `WorkspaceProtocol`: `runningApplications(atBundleURL:)`, `revealInFinder`, `open` | `MockWorkspace` | Running apps per bundle path. It records each reveal and each opened page. |
+| `WorkspaceProtocol`: `runningApplications(atBundleURL:)`, `urlsForApplications(withBundleIdentifier:)`, `revealInFinder`, `open` | `MockWorkspace` | Running apps per bundle path, and the app URLs per bundle ID (script `applicationURLsByBundleID`). It records each reveal and each opened page. |
 | `RunningApplicationHandle` | `MockRunningApplication` | `isTerminated`, the answer of `terminate()`, and `terminatesAfterReads` (an app that quits later, with no wait on the clock). `NSRunningApplication` cannot be made in a test. |
 | `CodeIdentityProtocol` | `MockCodeIdentity` | The signed identifier of each bundle. A bundle with no script reads as unsigned. |
 | `FinderTrashProtocol` | `MockFinderTrash` | The outcome per item (`setOutcome`) or for all (`defaultOutcome`). It records each request and its timeout. |
