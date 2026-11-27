@@ -108,7 +108,7 @@ example `com.example.sample`.
 | ---- | ----- | ------------------ |
 | Settings | `Preferences/<bundle ID>.plist` | The app starts with default settings. |
 | Cache | `Caches/<bundle ID>` | The app makes it again when needed. |
-| Web data | `HTTPStorages/<bundle ID>`, `WebKit/<bundle ID>` | Sessions and site data of the app. A sign-in can be lost. |
+| Web data | `HTTPStorages/<bundle ID>`, `HTTPStorages/<bundle ID>.binarycookies`, `WebKit/<bundle ID>` | Sessions and site data of the app. A sign-in can be lost. |
 | Logs | `Logs/<bundle ID>` | Diagnostic history. |
 | App data | `Application Support/<bundle ID>` | Can hold accounts, history and documents. The app cannot make it again. |
 | Sandbox data | `Containers/<bundle ID>`, `Application Scripts/<bundle ID>` | Data that macOS keeps for the app in a protected folder. |

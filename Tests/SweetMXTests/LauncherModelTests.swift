@@ -500,7 +500,7 @@ final class LauncherModelTests: XCTestCase {
         XCTAssertNil(model.selectedAppPath)
     }
 
-    /// The brief's name is kept. In app mode the key is always consumed, even with nothing highlighted,
+    /// In app mode the key is always consumed, even with nothing highlighted,
     /// so a stray press never types a "u" into the search field; no prompt opens and no state changes.
     func testCommandUIsConsumedWithoutSelection() throws {
         let controller = LauncherController(model: model)

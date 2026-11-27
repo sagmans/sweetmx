@@ -398,7 +398,8 @@ final class RelatedItemScannerTests: XCTestCase {
         items = scan(target(name: "Go", bundleID: "com.x.go"), others: [copy])
         XCTAssertEqual(item(items, named)?.lock, .secondCopyInstalled)
 
-        // protected beats nameNotCertain: the short name also matches the container folder name
+        // A protected folder is only ever read by bundle ID, never by name, so its row is locked as
+        // protected while a name match elsewhere keeps its own lock.
         let shortProtected = lib("Containers", "com.x.go")
         put(shortProtected)
         items = scan(target(name: "Go", bundleID: "com.x.go"))
