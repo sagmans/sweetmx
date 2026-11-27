@@ -483,6 +483,18 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertEqual(world.fileSystem.trashItemCalls.map(\.path), [Path.app, Path.cache])
     }
 
+    /// The switch is read again at confirm, so turning uninstall off while a sheet is open stops the move.
+    func testConfirmDoesNothingOnceTheSwitchIsOff() async {
+        let model = await fullModel()
+        world.preferences.defaults.set(false, forKey: UninstallSettings.preferenceKey)
+
+        model.confirm()
+
+        XCTAssertNil(model.moveTask)
+        XCTAssertEqual(model.phase, .ready)
+        XCTAssertTrue(world.fileSystem.trashItemCalls.isEmpty)
+    }
+
     func testAllMovedSetsTheInfoStatusAndClosesTheSheet() async {
         let model = await fullModel()
         var closed = false

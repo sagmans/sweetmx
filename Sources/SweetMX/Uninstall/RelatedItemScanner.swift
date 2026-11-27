@@ -54,10 +54,11 @@ nonisolated struct RelatedItemScanner: Sendable {
         Rule(folder: supportFolder, suffix: "", kind: .appData),
     ]
     /// macOS guards these folders; the scan lists them so the person knows they exist but never opens them.
+    /// `Group Containers` has no bundle ID rule: its folders are named after group IDs, which are almost
+    /// never the bundle ID, and looking there may raise a privacy prompt. Homebrew rows still name it.
     private static let protectedRules = [
         Rule(folder: containersFolder, suffix: "", kind: .container),
         Rule(folder: scriptsFolder, suffix: "", kind: .container),
-        Rule(folder: groupContainersFolder, suffix: "", kind: .container),
     ]
     private static let nameRules = [
         Rule(folder: supportFolder, suffix: "", kind: .appData),
@@ -218,11 +219,26 @@ nonisolated struct RelatedItemScanner: Sendable {
             }
         }
         let guarded = Self.protectedRules.compactMap { rule -> Candidate? in
-            accepted(folder: library.appendingPathComponent(rule.folder), name: target.bundleID + rule.suffix).map {
+            guardedItem(in: library.appendingPathComponent(rule.folder), name: target.bundleID + rule.suffix).map {
                 Candidate(url: $0, kind: rule.kind, match: .bundleID, isUncertain: false)
             }
         }
         return listed + guarded
+    }
+
+    /// A guarded row is only ever shown locked, so it needs no more than one look at the item itself,
+    /// without following it. Every further read inside a folder macOS guards (a stat, a link
+    /// resolution, a listing) could raise a privacy prompt for another app's data. A link, a missing
+    /// item or an unreadable one gives no row.
+    private func guardedItem(in folder: URL, name: String) -> URL? {
+        guard !name.contains(Self.pathSeparator) else { return nil }
+        let url = folder.appendingPathComponent(name)
+        switch try? fileSystem.itemKind(at: url) {
+        case .directory, .other:
+            return url
+        case .symbolicLink, .missing, nil:
+            return nil
+        }
     }
 
     private func entries(of folder: URL) -> [URL] {

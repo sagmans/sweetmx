@@ -144,9 +144,9 @@ final class UninstallSheetFixture {
         put(Path.nameMatch, size: nil)
     }
 
-    /// The sandbox container, always locked.
+    /// The sandbox container, always locked. The scan sees it through one look that does not follow links.
     func addContainer() {
-        fileSystem.addFile(at: Path.container, isDirectory: true)
+        fileSystem.itemKinds[Path.container] = .directory
     }
 
     /// A cask receipt whose cleanup list names a helper folder, which the scan lists as a locked

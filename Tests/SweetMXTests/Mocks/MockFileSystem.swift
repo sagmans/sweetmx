@@ -235,6 +235,13 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_allocatedSizeCalls }
     }
 
+    /// URLs asked about by `itemKind(at:)`, so a test can prove a guarded item got one look and no more.
+    private var _itemKindCalls: [URL] = []
+    var itemKindCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _itemKindCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_itemKindCalls }
+    }
+
     // MARK: - FileSystemProtocol Implementation
 
     var homeDirectoryForCurrentUser: URL {
@@ -332,6 +339,7 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
 
     func itemKind(at url: URL) throws -> FileItemKind {
         try withStateLock {
+            _itemKindCalls.append(url)
             if let error = _itemKindError {
                 throw error
             }

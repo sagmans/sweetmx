@@ -46,6 +46,7 @@ final class RelatedItemScannerTests: XCTestCase {
     /// Adds the item and lists it in its folder, as a real folder would.
     private func put(_ path: String) {
         fileSystem.addFile(at: path, isDirectory: true)
+        fileSystem.itemKinds[path] = .directory
         let url = URL(fileURLWithPath: path)
         let parent = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent)
         fileSystem.directoryContents[parent, default: []].append(url)
@@ -118,6 +119,8 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertTrue(scan(target()).isEmpty)
     }
 
+    /// A guarded item gets one look that does not follow links, and nothing else touches the guarded
+    /// folders: no stat, no link resolution, no listing, no size.
     func testContainerIsLocked() {
         let containers = lib("Containers", Fixture.bundleID)
         let scripts = lib("Application Scripts", Fixture.bundleID)
@@ -129,8 +132,32 @@ final class RelatedItemScannerTests: XCTestCase {
 
         XCTAssertEqual(items.count, 2)
         XCTAssertTrue(items.allSatisfy { $0.lock == .protectedByMacOS && $0.kind == .container && $0.sizeBytes == nil })
-        XCTAssertFalse(fileSystem.allocatedSizeCalls.contains { $0.url.path == containers || $0.url.path == scripts })
-        XCTAssertTrue(fileSystem.contentsOfDirectoryCalls.allSatisfy { !$0.path.contains("Containers") })
+        XCTAssertEqual(fileSystem.itemKindCalls.map(\.path).sorted(), [scripts, containers].sorted())
+        let guarded = [lib("Containers"), lib("Application Scripts")]
+        let inGuarded: (String) -> Bool = { path in guarded.contains { path == $0 || path.hasPrefix($0 + "/") } }
+        XCTAssertFalse(fileSystem.fileExistsAtPathCalls.contains(where: inGuarded))
+        XCTAssertFalse(fileSystem.isSymbolicLinkCalls.map(\.path).contains(where: inGuarded))
+        XCTAssertFalse(fileSystem.resolvingSymlinksCalls.map(\.path).contains(where: inGuarded))
+        XCTAssertFalse(fileSystem.contentsOfDirectoryCalls.map(\.path).contains(where: inGuarded))
+        XCTAssertFalse(fileSystem.allocatedSizeCalls.map(\.url.path).contains(where: inGuarded))
+    }
+
+    /// A link in a guarded folder could stand for anything, so it gives no row.
+    func testLinkedContainerIsDropped() {
+        fileSystem.itemKinds[lib("Containers", Fixture.bundleID)] = .symbolicLink
+
+        XCTAssertTrue(scan(target()).isEmpty)
+    }
+
+    /// Group container names are group IDs, almost never the bundle ID, and looking may raise a privacy
+    /// prompt, so the bundle ID rule never reads there.
+    func testGroupContainerIsNeverLookedUpByBundleID() {
+        let group = lib("Group Containers", Fixture.bundleID)
+        put(group)
+
+        XCTAssertTrue(scan(target()).isEmpty)
+        XCTAssertFalse(fileSystem.itemKindCalls.contains { $0.path.hasPrefix(lib("Group Containers")) })
+        XCTAssertFalse(fileSystem.fileExistsAtPathCalls.contains { $0.hasPrefix(lib("Group Containers")) })
     }
 
     // MARK: - Name matches

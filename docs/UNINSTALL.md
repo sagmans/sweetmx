@@ -111,7 +111,7 @@ example `com.example.sample`.
 | Web data | `HTTPStorages/<bundle ID>`, `WebKit/<bundle ID>` | Sessions and site data of the app. A sign-in can be lost. |
 | Logs | `Logs/<bundle ID>` | Diagnostic history. |
 | App data | `Application Support/<bundle ID>` | Can hold accounts, history and documents. The app cannot make it again. |
-| Sandbox data | `Containers`, `Application Scripts`, `Group Containers` | Data that macOS keeps for the app in a protected folder. |
+| Sandbox data | `Containers/<bundle ID>`, `Application Scripts/<bundle ID>` | Data that macOS keeps for the app in a protected folder. |
 
 The kinds and the cost sentences are the words that the sheet shows.
 
@@ -123,8 +123,10 @@ SweetMX also finds some rows in two other ways:
   as its Finder name or as its file name. Otherwise the row is locked.
 - **Listed by Homebrew.** The cleanup list of the Homebrew receipt (the `zap`
   entries). SweetMX reads only paths that point one level inside the folders
-  in the table, without wildcards and without `..`. You can tick such a row
-  only when its name is exactly the bundle ID or the certain app name.
+  in the table or inside `Group Containers`, without wildcards and without
+  `..`. You can tick such a row only when its name is exactly the bundle ID
+  or the certain app name. A sandbox or `Group Containers` row is always
+  locked.
 
 SweetMX reads the size of each row with a limit. When a folder is too large
 to read cheaply, the row shows "size unknown".
@@ -349,6 +351,20 @@ after it.
 6. `UninstallExecutor` resolves the target again, asks the app to quit and
    waits, resolves the target again, and moves the app. If the app moved, it
    checks each item again (depth, links, location) and moves it.
+
+A process that already runs as the same user can swap a folder for a link
+between the last check and the move. It can delete those files anyway, so
+this race crosses no privilege boundary.
+
+### Protected folders
+
+For a row in `Containers` or `Application Scripts`, the scan takes one look
+at the item without following links (`FileSystemProtocol.itemKind`). It never
+reads the size, resolves links or lists inside these folders, because such
+reads could make macOS ask for access to the data of another app. It does not
+look up `Group Containers` by bundle ID at all: the folders there are named
+after group IDs, which are almost never the bundle ID. A Homebrew row in
+`Group Containers` is shown locked and is never read.
 
 ### Seams
 

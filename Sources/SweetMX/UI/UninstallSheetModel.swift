@@ -340,9 +340,10 @@ final class UninstallSheetModel {
 
     /// Sends the app and only the ticked rows without a lock to the executor, so nothing the person did
     /// not choose, and nothing the scan locked, can move. Once started the move always runs to its end:
-    /// closing the sheet or the launcher only changes where its results are shown.
+    /// closing the sheet or the launcher only changes where its results are shown. The off switch is
+    /// read again here, because the sheet may have been open when someone turned uninstall off.
     func confirm() {
-        guard canConfirm, !launcher.uninstallInFlight, let target else { return }
+        guard canConfirm, launcher.isUninstallEnabled, !launcher.uninstallInFlight, let target else { return }
         phase = .moving
         launcher.uninstallInFlight = true
         let request = UninstallRequest(
