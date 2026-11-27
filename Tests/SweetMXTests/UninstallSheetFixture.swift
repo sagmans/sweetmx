@@ -146,7 +146,8 @@ final class UninstallSheetFixture {
         fileSystem.addFile(at: Path.container, isDirectory: true)
     }
 
-    /// A cask receipt whose cleanup list names a helper folder, which the scan lists as a Homebrew row.
+    /// A cask receipt whose cleanup list names a helper folder, which the scan lists as a locked
+    /// Homebrew row because its name only extends the bundle ID.
     func addHomebrew() throws {
         let receipt: [String: Any] = [
             "uninstall_artifacts": [["app": [Path.appFileName]], ["zap": [["trash": [Path.homebrewZapPath]]]]],

@@ -376,7 +376,7 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertEqual(Set(items.map(\.url.path)), [helper, data, foreign])
         XCTAssertEqual(item(items, helper)?.match, .homebrew)
         XCTAssertEqual(item(items, data)?.match, .name, "the name rule lists it first")
-        XCTAssertNil(item(items, helper)?.lock)
+        XCTAssertEqual(item(items, helper)?.lock, .nameNotCertain, "the ID plus a dotted part is not certain")
         XCTAssertNil(item(items, data)?.lock)
         XCTAssertEqual(item(items, foreign)?.lock, .nameNotCertain)
     }
@@ -428,14 +428,43 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertEqual(scan(target(), others: [twin], homebrew: find()).first?.lock, .nameNotCertain)
     }
 
-    func testHomebrewBundleIDFollowedByDotIsSelectable() throws {
+    func testHomebrewBundleIDFollowedByDotIsListedButLocked() throws {
         try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Preferences/com.x.app.helper.plist"]]))
         put(lib("Preferences", "com.x.app.helper.plist"))
 
         let items = scan(target(), homebrew: find())
 
         XCTAssertEqual(items.count, 1)
-        XCTAssertNil(items.first?.lock)
+        XCTAssertEqual(items.first?.lock, .nameNotCertain)
+    }
+
+    /// Removing Chrome must not offer Chrome Canary's files, whose ID only extends Chrome's.
+    func testHomebrewSiblingAppSharingTheIDPrefixIsLocked() throws {
+        let chrome = target(name: "Google Chrome", bundleID: "com.google.Chrome")
+        let canary = lib("Caches", "com.google.Chrome.canary")
+        put(canary)
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Caches/com.google.Chrome.canary"]]))
+
+        let items = scan(chrome, homebrew: HomebrewReceipt.find(for: chrome, fileSystem: fileSystem))
+
+        XCTAssertEqual(items.map(\.url.path), [canary])
+        XCTAssertEqual(items.first?.lock, .nameNotCertain)
+    }
+
+    /// The two names that do tie a Homebrew row to the app: the exact bundle ID and the certain name.
+    func testHomebrewExactIDAndCertainNameAreSelectable() throws {
+        let exact = lib("Caches", "com.x.app.plist")
+        let named = lib("Preferences", "Sample Pro.plist")
+        [exact, named].forEach(put)
+        try installReceipt(json: receiptJSON(zap: ["trash": [
+            "~/Library/Caches/com.x.app.plist", "~/Library/Preferences/Sample Pro.plist",
+        ]]))
+
+        let items = scan(target(), homebrew: find())
+
+        XCTAssertEqual(Set(items.map(\.url.path)), [exact, named])
+        XCTAssertNil(item(items, exact)?.lock)
+        XCTAssertNil(item(items, named)?.lock)
     }
 
     func testHomebrewReceiptWithoutLinkToTargetIsIgnored() throws {

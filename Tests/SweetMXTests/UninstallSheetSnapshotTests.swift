@@ -157,8 +157,9 @@ final class UninstallSheetSnapshotTests: XCTestCase {
         }
     }
 
-    /// Every selectable row ticked, with a locked container, a name match and a Homebrew row. No cache
-    /// row, so the whole list fits without scrolling and the locked row is in the reference.
+    /// Every selectable row ticked, with a name match and two locked rows: the container, and a Homebrew
+    /// helper whose name only extends the bundle ID. No cache row, so the locked section starts in the
+    /// reference; the helper sits below the container and is reached by scrolling.
     func testSnapshotAllRelated() async throws {
         try await assertSheet {
             let world = try freshWorld {

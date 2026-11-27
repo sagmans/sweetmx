@@ -78,7 +78,6 @@ nonisolated struct RelatedItemScanner: Sendable {
     private static let selectableFolders: Set<String> = Set(kindsByFolder.keys)
     /// Endings a Library item may add to a bundle ID or name.
     private static let knownSuffixes = [".plist", ".binarycookies", ".savedState"]
-    private static let bundleIDSeparator = "."
     private static let homebrewSelectableDepth = 2
     private static let protectedDepth = 2
     /// Short names such as "Go" match too many unrelated folders to trust.
@@ -258,14 +257,15 @@ nonisolated struct RelatedItemScanner: Sendable {
         }
     }
 
-    /// The name must be the bundle ID (or the ID plus a dotted part, as helper apps use) or the
-    /// app's own display name; a shared vendor folder or another app's ID does not qualify.
+    /// The name must be exactly the bundle ID or the app's certain display name. The ID plus a dotted
+    /// part is not enough: another app can own that ID (`com.google.Chrome.canary` beside
+    /// `com.google.Chrome`), so such a row stays listed but locked, like a shared vendor folder.
     private static func tiesToApp(_ name: String, target: UninstallTarget, nameIsCertain: Bool) -> Bool {
         var base = name
         if let suffix = knownSuffixes.first(where: { name.hasSuffix($0) && name.count > $0.count }) {
             base = String(name.dropLast(suffix.count))
         }
-        if base == target.bundleID || base.hasPrefix(target.bundleID + bundleIDSeparator) {
+        if base == target.bundleID {
             return true
         }
         return nameIsCertain && base.caseInsensitiveCompare(target.displayName) == .orderedSame
