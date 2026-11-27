@@ -223,6 +223,12 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_resolvingSymlinksCalls }
     }
 
+    private var _readDataCalls: [URL] = []
+    var readDataCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _readDataCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_readDataCalls }
+    }
+
     private var _allocatedSizeCalls: [(url: URL, limit: Int)] = []
     var allocatedSizeCalls: [(url: URL, limit: Int)] {
         _read { stateLock.lock(); defer { stateLock.unlock() }; yield _allocatedSizeCalls }
@@ -405,6 +411,7 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
     /// Serves `fileContents`, so a test scripts an Info.plist with `addFile(at:contents:)`; a file over the bound reads as nil.
     func readData(at url: URL, maxBytes: Int) -> Data? {
         withStateLock {
+            _readDataCalls.append(url)
             guard let data = _fileContents[url.path], data.count <= maxBytes else { return nil }
             return data
         }
@@ -447,6 +454,7 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         isSymbolicLinkCalls = []
         resolvingSymlinksCalls = []
         allocatedSizeCalls = []
+        readDataCalls = []
     }
 
     /// Adds a file to the mock file system

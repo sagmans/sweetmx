@@ -18,4 +18,6 @@ nonisolated struct UninstallTarget: Equatable, Sendable {
 /// explained instead of silently ignored.
 nonisolated enum UninstallRefusal: Error, Equatable, Sendable {
     case systemApp, requiredAppleApp, sweetMXItself, symlinkedApp, unreadableBundleID
+    /// Not an absolute path to an `.app` folder (a preference pane, a plug-in, a stray folder).
+    case notAnApplication
 }

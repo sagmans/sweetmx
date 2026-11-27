@@ -25,6 +25,7 @@ final class UninstallTargetResolverTests: XCTestCase {
         fileSystem = MockFileSystem()
         identity = MockCodeIdentity()
         fileSystem.writableDirectories.insert(Fixture.folder)
+        fileSystem.addFile(at: Fixture.bundlePath, isDirectory: true)
     }
 
     private func install(path: String = Fixture.bundlePath, info: [String: Any]) throws {
@@ -58,7 +59,7 @@ final class UninstallTargetResolverTests: XCTestCase {
         fileSystem.symbolicLinks.insert(Fixture.bundlePath)
 
         XCTAssertEqual(resolve(), .failure(.symlinkedApp))
-        XCTAssertTrue(fileSystem.contentsAtPathCalls.isEmpty)
+        XCTAssertTrue(fileSystem.readDataCalls.isEmpty)
     }
 
     func testRefusesAppThatResolvesUnderSystem() throws {
@@ -148,6 +149,91 @@ final class UninstallTargetResolverTests: XCTestCase {
 
         try install(info: [Fixture.plistKey: Fixture.thirdPartyID])
         XCTAssertEqual(try resolve().get().displayName, "Sample")
+    }
+
+    func testRefusesNonAppExtensionAndNonDirectory() throws {
+        let pane = "/Library/PreferencePanes/Sample.prefPane"
+        fileSystem.addFile(at: pane, isDirectory: true)
+        try install(path: pane, info: [Fixture.plistKey: Fixture.thirdPartyID])
+        XCTAssertEqual(resolve(path: pane), .failure(.notAnApplication))
+
+        let file = "/Applications/File.app"
+        fileSystem.addFile(at: file, isDirectory: false)
+        XCTAssertEqual(resolve(path: file), .failure(.notAnApplication))
+
+        let upper = "/Applications/Loud.APP"
+        fileSystem.addFile(at: upper, isDirectory: true)
+        try install(path: upper, info: [Fixture.plistKey: Fixture.thirdPartyID])
+        XCTAssertNoThrow(try resolve(path: upper).get())
+    }
+
+    func testRefusesEmptyAndRelativePaths() {
+        XCTAssertEqual(resolve(path: ""), .failure(.notAnApplication))
+        XCTAssertEqual(resolve(path: "Sample.app"), .failure(.notAnApplication))
+    }
+
+    func testNormalizesPathBeforeTheLinkCheck() throws {
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID])
+        fileSystem.symbolicLinks.insert(Fixture.bundlePath)
+        XCTAssertEqual(resolve(path: Fixture.bundlePath + "/"), .failure(.symlinkedApp))
+        XCTAssertEqual(resolve(path: "/Applications/Other/../Sample.app"), .failure(.symlinkedApp))
+
+        fileSystem.symbolicLinks.removeAll()
+        let target = try resolve(path: "/Applications/Other/../Sample.app/").get()
+        XCTAssertEqual(target.bundleURL.path, Fixture.bundlePath)
+    }
+
+    func testSystemPrefixAndAppleGateIgnoreCase() throws {
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID])
+        fileSystem.resolvedPaths[Fixture.bundlePath] = URL(fileURLWithPath: "/system/Applications/Sample.app")
+        XCTAssertEqual(resolve(), .failure(.systemApp))
+
+        fileSystem.resolvedPaths.removeAll()
+        try install(info: [Fixture.plistKey: "COM.APPLE.Safari"])
+        XCTAssertEqual(resolve(), .failure(.requiredAppleApp))
+        // The allowlist stays exact, so a different case of a listed ID is still refused.
+        try install(info: [Fixture.plistKey: "com.apple.iwork.pages"])
+        XCTAssertEqual(resolve(), .failure(.requiredAppleApp))
+    }
+
+    func testRefusesLinkedContentsOrInfoPlist() throws {
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID])
+        fileSystem.symbolicLinks.insert(Fixture.bundlePath + "/Contents")
+        XCTAssertEqual(resolve(), .failure(.symlinkedApp))
+
+        fileSystem.symbolicLinks = [Fixture.bundlePath + Fixture.infoSuffix]
+        XCTAssertEqual(resolve(), .failure(.symlinkedApp))
+    }
+
+    func testDisplayNameIsOneShortVisibleLine() throws {
+        let hostile = "Evil\u{202E}App\n\tName\u{0007}  X"
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: hostile])
+        XCTAssertEqual(try resolve().get().displayName, "EvilApp Name X")
+
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: String(repeating: "a", count: 500)])
+        XCTAssertEqual(try resolve().get().displayName.count, 120)
+
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: "\u{202E}\n"])
+        XCTAssertEqual(try resolve().get().displayName, "Sample")
+    }
+
+    func testRefusalPrecedenceForOverlappingCases() throws {
+        // Link that also resolves into /System: the link wins.
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID])
+        fileSystem.symbolicLinks.insert(Fixture.bundlePath)
+        fileSystem.resolvedPaths[Fixture.bundlePath] = URL(fileURLWithPath: "/System/Applications/Sample.app")
+        XCTAssertEqual(resolve(), .failure(.symlinkedApp))
+
+        // com.apple.* that is also SweetMX's own ID: itself wins over required Apple app.
+        fileSystem.symbolicLinks.removeAll()
+        fileSystem.resolvedPaths.removeAll()
+        try install(info: [Fixture.plistKey: "com.apple.sweetmx"])
+        let own = UninstallTargetResolver(fileSystem: fileSystem, codeIdentity: identity, ownBundleID: "com.apple.sweetmx")
+        XCTAssertEqual(own.resolve(bundlePath: Fixture.bundlePath), .failure(.sweetMXItself))
+
+        // Malformed ID starting with com.apple.: unreadable wins over required Apple app.
+        try install(info: [Fixture.plistKey: "com.apple..Safari"])
+        XCTAssertEqual(resolve(), .failure(.unreadableBundleID))
     }
 
     func testIsWellFormed() {

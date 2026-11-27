@@ -7,12 +7,16 @@ import Foundation
 /// injected seams, so tests never touch a real app.
 nonisolated struct UninstallTargetResolver: Sendable {
     /// The system volume holds apps that macOS needs; the symlink-resolved path is compared so a
-    /// path that merely looks like a user app cannot hide one.
-    private static let systemPathPrefix = "/System/"
+    /// path that merely looks like a user app cannot hide one. The match ignores case because the
+    /// default volume format does. `/System/Volumes/Data/...` is refused on purpose: it is a safe
+    /// false positive, since user apps never live there.
+    private static let systemPathPrefix = "/system/"
     private static let applePrefix = "com.apple."
     /// Apple apps a person installed on purpose and may remove. Entries ending in a dot are prefixes.
     /// Only IDs confirmed on a real install or long public are listed; an unknown `com.apple.*`
-    /// app stays protected because removing a required one can break the system.
+    /// app stays protected because removing a required one can break the system. A listed ID is not
+    /// tied to a signature, and that is acceptable: the removal only moves the user's own item to the
+    /// Trash, and an unsigned or mismatching app gets every related file locked (`identityConfirmed`).
     private static let removableAppleIDs: [String] = [
         "com.apple.dt.",
         "com.apple.garageband10",
@@ -25,6 +29,15 @@ nonisolated struct UninstallTargetResolver: Sendable {
     private static let displayNameKeys = ["CFBundleDisplayName", "CFBundleName"]
     private static let bundleIDKey = "CFBundleIdentifier"
     private static let bundleExtension = "app"
+    private static let contentsFolder = "Contents"
+    private static let rootPath = "/"
+    /// The name appears in a confirmation prompt; the cap keeps a hostile name from filling it.
+    private static let displayNameMaxLength = 120
+    private static let nameSeparator: Character = " "
+    /// Characters that can hide or reorder text (controls, bidi overrides, zero-width marks, line breaks).
+    private static let strippedCategories: Set<Unicode.GeneralCategory> = [
+        .control, .format, .lineSeparator, .paragraphSeparator,
+    ]
     /// Real Info.plist files are a few KB; the bound stops a crafted bundle from exhausting memory.
     private static let infoPlistMaxBytes = 1_048_576
     private static let bundleIDSeparator: Character = "."
@@ -45,15 +58,26 @@ nonisolated struct UninstallTargetResolver: Sendable {
         self.ownBundleID = ownBundleID
     }
 
-    /// The link check runs first because every later check reads the path; a link could make them
-    /// all look at a different app than the one the Trash move would hit.
+    /// The path is normalized first so `..` or a trailing slash cannot hide a link, and the link
+    /// check runs before any read because a link could make later checks look at a different app
+    /// than the one the Trash move would hit.
     func resolve(bundlePath: String) -> Result<UninstallTarget, UninstallRefusal> {
-        let bundleURL = URL(fileURLWithPath: bundlePath)
+        guard bundlePath.hasPrefix(Self.rootPath) else { return .failure(.notAnApplication) }
+        let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
         if fileSystem.isSymbolicLink(at: bundleURL) {
             return .failure(.symlinkedApp)
         }
-        if fileSystem.resolvingSymlinks(bundleURL).path.hasPrefix(Self.systemPathPrefix) {
+        if fileSystem.resolvingSymlinks(bundleURL).path.lowercased().hasPrefix(Self.systemPathPrefix) {
             return .failure(.systemApp)
+        }
+        guard bundleURL.pathExtension.lowercased() == Self.bundleExtension, isDirectory(bundleURL) else {
+            return .failure(.notAnApplication)
+        }
+        // A link inside the bundle could borrow another app's Info.plist and so its identity.
+        let contentsURL = bundleURL.appendingPathComponent(Self.contentsFolder)
+        let plistURL = Self.infoPlistComponents.reduce(bundleURL) { $0.appendingPathComponent($1) }
+        if fileSystem.isSymbolicLink(at: contentsURL) || fileSystem.isSymbolicLink(at: plistURL) {
+            return .failure(.symlinkedApp)
         }
         guard let info = Self.readInfo(of: bundleURL, fileSystem: fileSystem),
               let bundleID = info[Self.bundleIDKey] as? String,
@@ -101,19 +125,40 @@ nonisolated struct UninstallTargetResolver: Sendable {
     }
 
     private func isRequiredAppleApp(_ bundleID: String) -> Bool {
-        guard bundleID.hasPrefix(Self.applePrefix) else { return false }
+        guard bundleID.lowercased().hasPrefix(Self.applePrefix) else { return false }
         return !Self.removableAppleIDs.contains { entry in
             entry.hasSuffix(String(Self.bundleIDSeparator)) ? bundleID.hasPrefix(entry) : bundleID == entry
         }
     }
 
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileSystem.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
     private func displayName(from info: [String: Any], bundleURL: URL) -> String {
-        for key in Self.displayNameKeys {
-            if let name = info[key] as? String, !name.isEmpty {
+        let candidates = Self.displayNameKeys.compactMap { info[$0] as? String }
+            + [bundleURL.deletingPathExtension().lastPathComponent]
+        for candidate in candidates {
+            let name = Self.sanitized(candidate)
+            if !name.isEmpty {
                 return name
             }
         }
-        let fileName = bundleURL.lastPathComponent
-        return bundleURL.pathExtension == Self.bundleExtension ? bundleURL.deletingPathExtension().lastPathComponent : fileName
+        return Self.sanitized(bundleURL.lastPathComponent)
+    }
+
+    /// One short, visible line: the name is shown where a person decides to remove an app.
+    private static func sanitized(_ name: String) -> String {
+        var line = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars {
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                line.append(Unicode.Scalar(String(nameSeparator))!)
+            } else if !strippedCategories.contains(scalar.properties.generalCategory) {
+                line.append(scalar)
+            }
+        }
+        let words = String(line).split(separator: nameSeparator, omittingEmptySubsequences: true)
+        return String(words.joined(separator: String(nameSeparator)).prefix(displayNameMaxLength))
     }
 }
