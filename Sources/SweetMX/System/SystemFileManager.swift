@@ -112,21 +112,21 @@ public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: sizeKeys, options: [], errorHandler: { _, _ in
             failed = true
             return false
-        }) else { return nil }
-
-        var total = allocatedBytes(of: url) ?? 0
+        }), var total = allocatedBytes(of: url) else { return nil }
         var visited = 0
         while let entry = enumerator.nextObject() as? URL {
             visited += 1
-            guard visited <= limit else { return nil }
-            total += allocatedBytes(of: entry) ?? 0
+            // A size that cannot be read would make the total look smaller than it is.
+            guard visited <= limit, let bytes = allocatedBytes(of: entry) else { return nil }
+            total += bytes
         }
         return failed ? nil : total
     }
 
     private func allocatedBytes(of url: URL) -> Int64? {
         guard let values = try? url.resourceValues(forKeys: Set(sizeKeys)) else { return nil }
-        return (values.totalFileAllocatedSize ?? values.fileAllocatedSize).map(Int64.init)
+        // A directory reports no size of its own; only a failed read means "unreadable".
+        return Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
     }
 }
 

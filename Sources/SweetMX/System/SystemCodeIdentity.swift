@@ -4,7 +4,9 @@ import Security
 /// Production code-signing reader built on the Security framework.
 ///
 /// Strict validation (all architectures, nested code) is used so a bundle with a tampered inner
-/// part reads as unsigned and uninstall never trusts its identifier.
+/// part reads as unsigned. A valid signature, even an ad-hoc one, carries an identifier anyone can
+/// choose, so the identifier only shows that the bundle's Info.plist ID and its signature agree.
+/// It does not show who the vendor is.
 public nonisolated struct SystemCodeIdentity: CodeIdentityProtocol {
     private static let validityFlags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
 

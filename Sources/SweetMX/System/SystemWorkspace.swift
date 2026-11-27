@@ -17,7 +17,9 @@ public final class SystemWorkspace: WorkspaceProtocol {
     }
 
     public func runningApplications(atBundleURL url: URL) -> [any RunningApplicationHandle] {
-        NSWorkspace.shared.runningApplications.filter { $0.bundleURL?.standardizedFileURL == url.standardizedFileURL }
+        // Resolve links on both sides so an app opened through a symlinked path still matches.
+        let wanted = url.resolvingSymlinksInPath().standardizedFileURL
+        return workspace.runningApplications.filter { $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL == wanted }
     }
 
     public func revealInFinder(_ url: URL) {

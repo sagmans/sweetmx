@@ -25,6 +25,7 @@ final class SystemUninstallSeamsTests: XCTestCase {
         static let leafBytes = 8192
         static let underLimit = 100
         static let belowEntryCount = 3
+        static let unmappedCode = -50
     }
 
     private var root: URL!
@@ -99,6 +100,33 @@ final class SystemUninstallSeamsTests: XCTestCase {
         let tree = try makeTree(leaves: Fixture.leafCount)
 
         XCTAssertNil(fileSystem.allocatedSize(at: tree, limit: Fixture.belowEntryCount))
+    }
+
+    func testAllocatedSizeAtExactlyTheLimitIsCounted() throws {
+        let tree = try makeTree(leaves: Fixture.leafCount)
+
+        XCTAssertNotNil(fileSystem.allocatedSize(at: tree, limit: Fixture.leafCount))
+        XCTAssertNil(fileSystem.allocatedSize(at: tree, limit: Fixture.leafCount - 1))
+    }
+
+    func testAllocatedSizeDoesNotFollowASymlinkInsideTheTree() throws {
+        let tree = try makeTree(leaves: 1)
+        let outside = try makeDirectory(Names.target)
+        for index in 0 ..< Fixture.leafCount {
+            try Data(count: Fixture.leafBytes).write(to: outside.appendingPathComponent("\(Names.leaf)\(index)"))
+        }
+        try FileManager.default.createSymbolicLink(at: tree.appendingPathComponent(Names.link), withDestinationURL: outside)
+
+        // One leaf plus the link itself: the five files behind the link are not visited.
+        XCTAssertNotNil(fileSystem.allocatedSize(at: tree, limit: 2))
+    }
+
+    func testFinderOutcomeMapping() {
+        XCTAssertEqual(SystemFinderTrash.outcome(forCode: 0), .moved)
+        XCTAssertEqual(SystemFinderTrash.outcome(forCode: -1743), .consentRefused)
+        XCTAssertEqual(SystemFinderTrash.outcome(forCode: -128), .cancelled)
+        XCTAssertEqual(SystemFinderTrash.outcome(forCode: -1712), .timedOut)
+        XCTAssertEqual(SystemFinderTrash.outcome(forCode: Fixture.unmappedCode), .failed(code: Fixture.unmappedCode))
     }
 
     func testAllocatedSizeIsNilWhenMissing() {

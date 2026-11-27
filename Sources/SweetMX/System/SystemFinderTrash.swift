@@ -22,13 +22,22 @@ public nonisolated struct SystemFinderTrash: FinderTrashProtocol {
         static let none = 0
     }
 
+    /// A zero or negative timeout would mean "wait forever" to the Apple Event API.
+    private static let minimumTimeout: TimeInterval = 1
+
+    /// The send blocks for as long as a password prompt stays open. A dedicated queue keeps that
+    /// wait off the cooperative pool, which would otherwise lose a thread for the whole timeout.
+    private static let sendQueue = DispatchQueue(label: "com.sagmans.sweetmx.finder-trash", qos: .userInitiated)
+
     public init() {}
 
     public func moveToTrash(_ url: URL, timeout: TimeInterval) async -> FinderTrashOutcome {
-        // The send blocks until Finder replies, so it runs off the main actor.
-        await Task.detached(priority: .userInitiated) {
-            Self.send(url, timeout: timeout)
-        }.value
+        let bounded = max(timeout, Self.minimumTimeout)
+        return await withCheckedContinuation { continuation in
+            Self.sendQueue.async {
+                continuation.resume(returning: Self.send(url, timeout: bounded))
+            }
+        }
     }
 
     private static func send(_ url: URL, timeout: TimeInterval) -> FinderTrashOutcome {
@@ -49,7 +58,8 @@ public nonisolated struct SystemFinderTrash: FinderTrashProtocol {
         }
     }
 
-    private static func outcome(forCode code: Int) -> FinderTrashOutcome {
+    /// Internal so a test can prove the mapping without driving Finder.
+    static func outcome(forCode code: Int) -> FinderTrashOutcome {
         switch code {
         case ErrorCode.none: .moved
         case ErrorCode.consentRefused: .consentRefused

@@ -130,7 +130,7 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_resolvedPaths }
     }
 
-    /// Size per path; a path that is absent here is unreadable (nil). `allocatedSizeLimits` records the limit asked for.
+    /// Size per path; a path that is absent here is unreadable (nil). `allocatedSizeCalls` records the limit asked for.
     private var _allocatedSizes: [String: Int64] = [:]
     var allocatedSizes: [String: Int64] {
         _read { stateLock.lock(); defer { stateLock.unlock() }; yield _allocatedSizes }
