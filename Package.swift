@@ -78,7 +78,7 @@ let package = Package(
         // fast, and `make benchmark` can build this one with optimizations, as the shipped app is.
         .testTarget(
             name: "SweetMXBenchmarks",
-            dependencies: ["SweetMX"],
+            dependencies: ["SweetMX", "WMCore"],
             path: "Tests/SweetMXBenchmarks",
             swiftSettings: [
                 .swiftLanguageMode(.v6),

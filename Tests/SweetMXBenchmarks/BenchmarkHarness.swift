@@ -159,6 +159,11 @@ enum BenchmarkHost {
 enum PerformanceGate {
     /// The full scan has a fixed latency budget, including after a baseline recording.
     static let appIndexScan = (name: "app_index_scan_ms", limitMilliseconds: 200.0)
+    /// One step of the window manager model must cost far less than moving one real window, so
+    /// the model is never what the user waits for. The budget is fixed by the window manager plan.
+    static let windowManagerStep = (name: "wm_reduce_layout_ms", limitMilliseconds: 1.0)
+    /// Metrics whose limit is a design budget, not a factor of what one recording measured.
+    private static let fixedTimeBudgets = [appIndexScan, windowManagerStep]
 
     /// Wall time on a shared desktop varies by tens of percent run to run; 1.5x stays clear of that
     /// noise while still catching an accidental quadratic path or a lost cache.
@@ -192,8 +197,8 @@ enum PerformanceGate {
     }
 
     static func limit(for measurement: Measurement) -> Double {
-        if measurement.name == appIndexScan.name {
-            return appIndexScan.limitMilliseconds
+        if let budget = fixedTimeBudgets.first(where: { $0.name == measurement.name }) {
+            return budget.limitMilliseconds
         }
         let value = measurement.value
         let raw: Double = switch measurement.kind {

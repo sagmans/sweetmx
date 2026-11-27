@@ -1,5 +1,6 @@
 import AppKit
 @testable import SweetMX
+import WMCore
 
 /// The real file system, confined to one temporary folder.
 ///
@@ -232,4 +233,46 @@ enum BenchmarkFixtures {
     static func keystrokes(of query: String) -> [String] {
         query.indices.map { String(query[...$0]) }
     }
+}
+
+/// Window manager inputs for the model benchmark. No real window is involved: the model is pure.
+extension BenchmarkFixtures {
+    /// More windows than one workspace holds in real use, so the budget has room to spare.
+    static let windowManagerWindowCount = 100
+    /// Every this many windows the next one opens in a new split across the last, so the tree is
+    /// nested as a used desktop is, not one flat row.
+    private static let windowsPerSplit = 7
+    private static let screen = Rect(x: 0, y: 0, width: 3840, height: 2160)
+    private static let gaps = Gaps(inner: 8, outer: 8)
+    /// A window in the middle of the tree, closed by one of the measured inputs.
+    private static let middleWindow = WindowID(50)
+    private static let otherCell = Coord(x: 1, y: 0)
+    private static let resizeShare = 0.05
+
+    /// One workspace with every window visible, built only through `reduce`, as the app builds it.
+    static func windowManagerState() -> WMState {
+        var state = WMState(screen: screen, gaps: gaps)
+        for number in 1 ... windowManagerWindowCount {
+            if number.isMultiple(of: windowsPerSplit) {
+                state = reduce(state, .command(.split(number.isMultiple(of: 2) ? .horizontal : .vertical))).state
+            }
+            state = reduce(state, .event(.created(WindowID(UInt32(number))))).state
+        }
+        return state
+    }
+
+    /// One input of each kind that changes many frames, or walks the whole tree to find its
+    /// window. Each is measured against the same state.
+    static let windowManagerInputs: [Input] = [
+        .event(.created(WindowID(UInt32(windowManagerWindowCount + 1)))),
+        .event(.destroyed(middleWindow)),
+        .event(.focused(middleWindow)),
+        .event(.displayChanged(Rect(x: 0, y: 0, width: 1920, height: 1080))),
+        .command(.zoomIn),
+        .command(.focus(.left)),
+        .command(.move(.left)),
+        .command(.resize(.left, amount: resizeShare)),
+        .command(.gridMove(.right)),
+        .command(.sendToWorkspace(otherCell)),
+    ]
 }

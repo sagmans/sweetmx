@@ -98,7 +98,14 @@
       "limit" : 7.688,
       "summary" : "Index cache, history load and first app rows, as at launch",
       "unit" : "ms"
+    },
+    "wm_reduce_layout_ms" : {
+      "baseline" : 0.071,
+      "kind" : "time",
+      "limit" : 1,
+      "summary" : "Slowest of 10 inputs: reduce plus layout, 100 windows",
+      "unit" : "ms"
     }
   },
-  "recordedAt" : "2026-11-19T16:31:28Z"
+  "recordedAt" : "2026-11-27T07:46:27Z"
 }

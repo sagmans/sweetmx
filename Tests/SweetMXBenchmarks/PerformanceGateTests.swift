@@ -1,4 +1,5 @@
 @testable import SweetMX
+import WMCore
 import XCTest
 
 /// The performance regression gate: measures every hot path the user waits on and every resource the
@@ -89,6 +90,7 @@ final class PerformanceGateTests: XCTestCase {
         try measureStartup()
         measureIdleCost()
         try measureBinarySize()
+        measureWindowManagerModel()
 
         let environment = ProcessInfo.processInfo.environment
         try writeResults(to: environment[Environment.results].map(URL.init(fileURLWithPath:)) ?? Self.defaultResultsURL)
@@ -267,6 +269,21 @@ final class PerformanceGateTests: XCTestCase {
         try BaselineFile.encoder().encode(file).write(to: Self.baselineURL, options: .atomic)
         emit("Recorded \(scope == .all ? "all" : "selected") metrics to benchmarks/baseline.json on \(file.host)")
         emit(PerformanceGate.report(measurements, baseline: file))
+    }
+
+    /// One step of the window manager: an input through `reduce`, then the frames of the result.
+    /// The metric is the slowest of several inputs, so no kind of input can hide behind a fast one.
+    private func measureWindowManagerModel() {
+        let state = BenchmarkFixtures.windowManagerState()
+        XCTAssertEqual(Presentation(of: state).frames.count, BenchmarkFixtures.windowManagerWindowCount, "Every fixture window must be on screen")
+        let slowest = BenchmarkFixtures.windowManagerInputs.map { input in
+            Probe.medianMilliseconds {
+                let next = reduce(state, input).state
+                _ = layout(next.grid.currentWorkspace, screenRect: next.screen, gaps: next.gaps)
+            }
+        }.max() ?? .infinity
+        add(PerformanceGate.windowManagerStep.name, .time, "ms", slowest,
+            "Slowest of \(BenchmarkFixtures.windowManagerInputs.count) inputs: reduce plus layout, \(BenchmarkFixtures.windowManagerWindowCount) windows")
     }
 
     private func add(_ name: String, _ kind: MetricKind, _ unit: String, _ value: Double, _ summary: String) {
