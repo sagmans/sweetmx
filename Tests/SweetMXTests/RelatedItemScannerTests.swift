@@ -14,7 +14,7 @@ final class RelatedItemScannerTests: XCTestCase {
         static let infoSuffix = "/Contents/Info.plist"
         static let caskroom = "/opt/homebrew/Caskroom"
         static let token = "sample-pro"
-        static let cleanupLimit = 20000
+        static let version = "1.0"
     }
 
     private var fileSystem: MockFileSystem!
@@ -43,8 +43,12 @@ final class RelatedItemScannerTests: XCTestCase {
         ([Fixture.library] + parts).joined(separator: "/")
     }
 
+    /// Adds the item and lists it in its folder, as a real folder would.
     private func put(_ path: String) {
         fileSystem.addFile(at: path, isDirectory: true)
+        let url = URL(fileURLWithPath: path)
+        let parent = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent)
+        fileSystem.directoryContents[parent, default: []].append(url)
     }
 
     private func list(_ folder: String, _ names: [String]) {
@@ -66,6 +70,13 @@ final class RelatedItemScannerTests: XCTestCase {
             fromPropertyList: ["CFBundleIdentifier": bundleID], format: .xml, options: 0
         )
         fileSystem.addFile(at: path + Fixture.infoSuffix, contents: data)
+    }
+
+    /// An indexed app with the target's display name but another bundle ID.
+    private func installDifferentApp(name: String) throws -> ApplicationInfo {
+        let path = "/Applications/Elsewhere/\(name).app"
+        try installOther(path: path, bundleID: "com.y.other")
+        return ApplicationInfo(name: name, bundlePath: path)
     }
 
     private func item(_ items: [RelatedItem], _ path: String) -> RelatedItem? {
@@ -92,7 +103,7 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertEqual(item(items, lib("Caches", id))?.kind, .cache)
         XCTAssertEqual(item(items, lib("Caches", id))?.sizeBytes, 42)
         XCTAssertNil(item(items, lib("Logs", id))?.sizeBytes)
-        XCTAssertEqual(fileSystem.allocatedSizeCalls.first?.limit, Fixture.cleanupLimit)
+        XCTAssertEqual(fileSystem.allocatedSizeCalls.first?.limit, RelatedItemScanner.sizeEntryLimit)
     }
 
     func testIgnoresSimilarBundleID() {
@@ -146,10 +157,9 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertEqual(items.first?.match, .bundleID)
     }
 
-    func testLocksNameMatchWhenAnotherAppSharesName() {
+    func testLocksNameMatchWhenAnotherAppSharesName() throws {
         put(lib("Caches", Fixture.displayName))
-        list(lib("Caches"), [Fixture.displayName])
-        let other = ApplicationInfo(name: "SAMPLE PRO", bundlePath: "/Applications/Elsewhere/Sample.app")
+        let other = try installDifferentApp(name: "SAMPLE PRO")
 
         let items = scan(target(), others: [other])
 
@@ -208,7 +218,47 @@ final class RelatedItemScannerTests: XCTestCase {
 
         _ = scan(target(), others: [unrelated])
 
-        XCTAssertTrue(fileSystem.fileExistsAtPathCalls.allSatisfy { !$0.hasPrefix("/Applications/Different.app") })
+        XCTAssertTrue(fileSystem.readDataCalls.isEmpty)
+    }
+
+    func testUnreadableBundleIDOfSameNamedAppLocksEverything() {
+        put(lib("Caches", Fixture.bundleID))
+        let twin = ApplicationInfo(name: Fixture.displayName, bundlePath: "/Applications/Twin/Sample Pro.app")
+
+        XCTAssertEqual(scan(target(), others: [twin]).first?.lock, .secondCopyInstalled)
+    }
+
+    func testLockPrecedence() throws {
+        let cache = lib("Caches", Fixture.bundleID)
+        let container = lib("Containers", Fixture.bundleID)
+        let named = lib("Logs", "Go")
+        [cache, container, named].forEach(put)
+        let copyPath = "/Applications/Copy/Go.app"
+        try installOther(path: copyPath, bundleID: "com.x.go")
+        let copy = ApplicationInfo(name: "Go", bundlePath: copyPath)
+
+        // identity beats second copy
+        var items = scan(target(name: "Go", bundleID: "com.x.go", confirmed: false), others: [copy])
+        XCTAssertTrue(items.allSatisfy { $0.lock == .identityNotConfirmed })
+
+        // second copy beats nameNotCertain
+        items = scan(target(name: "Go", bundleID: "com.x.go"), others: [copy])
+        XCTAssertEqual(item(items, named)?.lock, .secondCopyInstalled)
+
+        // protected beats nameNotCertain: the short name also matches the container folder name
+        let shortProtected = lib("Containers", "com.x.go")
+        put(shortProtected)
+        items = scan(target(name: "Go", bundleID: "com.x.go"))
+        XCTAssertEqual(item(items, shortProtected)?.lock, .protectedByMacOS)
+        XCTAssertEqual(item(items, named)?.lock, .nameNotCertain)
+    }
+
+    func testIgnoresDifferentlyCasedOnDiskName() {
+        let onDisk = lib("Caches", "Com.X.App")
+        put(onDisk)
+        fileSystem.existingFiles[lib("Caches", Fixture.bundleID)] = true
+
+        XCTAssertTrue(scan(target()).isEmpty)
     }
 
     // MARK: - Links and containment
@@ -239,10 +289,25 @@ final class RelatedItemScannerTests: XCTestCase {
         return try JSONSerialization.data(withJSONObject: root)
     }
 
-    private func installReceipt(token: String = Fixture.token, json: Data) {
+    /// Scripts the Caskroom layout Homebrew leaves: a receipt and, when `linkTarget` is set, a link
+    /// `<token>/<version>/<App>.app` to the installed copy.
+    private func installReceipt(
+        token: String = Fixture.token,
+        json: Data,
+        linkTarget: String? = Fixture.bundlePath,
+        app: String = "Sample Pro.app"
+    ) {
         let root = URL(fileURLWithPath: Fixture.caskroom)
-        fileSystem.directoryContents[root, default: []].append(root.appendingPathComponent(token))
-        fileSystem.fileContents["\(Fixture.caskroom)/\(token)/.metadata/INSTALL_RECEIPT.json"] = json
+        let tokenURL = root.appendingPathComponent(token)
+        fileSystem.directoryContents[root, default: []].append(tokenURL)
+        fileSystem.fileContents["\(tokenURL.path)/.metadata/INSTALL_RECEIPT.json"] = json
+        guard let linkTarget else { return }
+        let versionURL = tokenURL.appendingPathComponent(Fixture.version)
+        let linkURL = versionURL.appendingPathComponent(app)
+        fileSystem.directoryContents[tokenURL] = [tokenURL.appendingPathComponent(".metadata"), versionURL]
+        fileSystem.directoryContents[versionURL] = [linkURL]
+        fileSystem.symbolicLinks.insert(linkURL.path)
+        fileSystem.resolvedPaths[linkURL.path] = URL(fileURLWithPath: linkTarget)
     }
 
     private func find() -> HomebrewReceipt? {
@@ -251,15 +316,14 @@ final class RelatedItemScannerTests: XCTestCase {
 
     func testHomebrewReadsZapPaths() throws {
         try installReceipt(json: receiptJSON(zap: [
-            "trash": ["~/Library/Saved Application State/com.x.app.savedState", "~/Library/Preferences/com.x.group.plist"],
-            "delete": "~/Library/Application Support/SampleData",
+            "trash": ["~/Library/Preferences/com.x.app.helper.plist", "~/Library/Preferences/com.x.group.plist"],
+            "delete": "~/Library/Application Support/Sample Pro",
             "rmdir": ["~/Library/Caches/Sample"],
         ]))
-        let state = lib("Saved Application State", "com.x.app.savedState")
-        let data = lib("Application Support", "SampleData")
-        let other = lib("Application Support", "Gone")
-        put(state)
-        put(data)
+        let helper = lib("Preferences", "com.x.app.helper.plist")
+        let data = lib("Application Support", "Sample Pro")
+        let foreign = lib("Preferences", "com.x.group.plist")
+        [helper, data, foreign].forEach(put)
 
         let receipt = try XCTUnwrap(find())
         XCTAssertEqual(receipt.token, Fixture.token)
@@ -267,9 +331,95 @@ final class RelatedItemScannerTests: XCTestCase {
 
         let items = scan(target(), homebrew: receipt)
 
-        XCTAssertEqual(Set(items.map(\.url.path)), [state, data])
-        XCTAssertTrue(items.allSatisfy { $0.match == .homebrew && $0.lock == nil })
-        XCTAssertNil(item(items, other))
+        XCTAssertEqual(Set(items.map(\.url.path)), [helper, data, foreign])
+        XCTAssertEqual(item(items, helper)?.match, .homebrew)
+        XCTAssertEqual(item(items, data)?.match, .name, "the name rule lists it first")
+        XCTAssertNil(item(items, helper)?.lock)
+        XCTAssertNil(item(items, data)?.lock)
+        XCTAssertEqual(item(items, foreign)?.lock, .nameNotCertain)
+    }
+
+    func testHomebrewKeychainPathIsDropped() throws {
+        try installReceipt(json: receiptJSON(zap: ["trash": [
+            "~/Library/Keychains/login.keychain-db", "~/Library/Saved Application State/com.x.app.savedState",
+            "~/Library/Application Support/Sample Pro/Deep",
+        ]]))
+        put(lib("Keychains", "login.keychain-db"))
+        put(lib("Application Support", "Sample Pro", "Deep"))
+
+        XCTAssertTrue(scan(target(), homebrew: find()).isEmpty)
+    }
+
+    func testHomebrewGroupContainerIsLockedAndNotStatted() throws {
+        let group = lib("Group Containers", "group.com.x.app")
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Group Containers/group.com.x.app"]]))
+
+        let items = scan(target(), homebrew: find())
+
+        XCTAssertEqual(items.map(\.url.path), [group])
+        XCTAssertEqual(items.first?.lock, .protectedByMacOS)
+        XCTAssertNil(items.first?.sizeBytes)
+        XCTAssertFalse(fileSystem.fileExistsAtPathCalls.contains(group))
+        XCTAssertFalse(fileSystem.isSymbolicLinkCalls.contains { $0.path == group })
+        XCTAssertFalse(fileSystem.allocatedSizeCalls.contains { $0.url.path == group })
+    }
+
+    func testHomebrewAnotherAppsCacheIsLocked() throws {
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Caches/com.other.app"]]))
+        put(lib("Caches", "com.other.app"))
+
+        XCTAssertEqual(scan(target(), homebrew: find()).first?.lock, .nameNotCertain)
+    }
+
+    func testHomebrewSharedVendorFolderIsLocked() throws {
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Application Support/Google"]]))
+        put(lib("Application Support", "Google"))
+
+        XCTAssertEqual(scan(target(), homebrew: find()).first?.lock, .nameNotCertain)
+    }
+
+    func testHomebrewDisplayNameRowIsLockedWhenNameIsNotCertain() throws {
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Caches/Sample Pro"]]))
+        put(lib("Caches", "Sample Pro"))
+        let twin = try installDifferentApp(name: "sample pro")
+
+        XCTAssertEqual(scan(target(), others: [twin], homebrew: find()).first?.lock, .nameNotCertain)
+    }
+
+    func testHomebrewBundleIDFollowedByDotIsSelectable() throws {
+        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Preferences/com.x.app.helper.plist"]]))
+        put(lib("Preferences", "com.x.app.helper.plist"))
+
+        let items = scan(target(), homebrew: find())
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertNil(items.first?.lock)
+    }
+
+    func testHomebrewReceiptWithoutLinkToTargetIsIgnored() throws {
+        let json = try receiptJSON(zap: ["trash": ["~/Library/Caches/ok"]])
+        installReceipt(json: json, linkTarget: nil)
+        XCTAssertNil(find(), "no link at all")
+
+        fileSystem = MockFileSystem()
+        installReceipt(json: json, linkTarget: "/Applications/Other/Sample Pro.app")
+        XCTAssertNil(find(), "link to a different copy")
+
+        fileSystem = MockFileSystem()
+        installReceipt(json: json)
+        XCTAssertEqual(find()?.token, Fixture.token)
+    }
+
+    func testHomebrewRefusesLinkedMetadataOrReceipt() throws {
+        let json = try receiptJSON(zap: ["trash": ["~/Library/Caches/ok"]])
+        installReceipt(json: json)
+        fileSystem.symbolicLinks.insert("\(Fixture.caskroom)/\(Fixture.token)/.metadata")
+        XCTAssertNil(find())
+
+        fileSystem = MockFileSystem()
+        installReceipt(json: json)
+        fileSystem.symbolicLinks.insert("\(Fixture.caskroom)/\(Fixture.token)/.metadata/INSTALL_RECEIPT.json")
+        XCTAssertNil(find())
     }
 
     func testHomebrewDuplicatesOfBundleIDRowsAreDropped() throws {
@@ -319,14 +469,6 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertEqual(find()?.cleanupPaths.map(\.path), [lib("Caches", "ok")])
     }
 
-    func testHomebrewLinkedAncestorIsDropped() throws {
-        try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Application Support/Sample/Deep"]]))
-        put(lib("Application Support", "Sample", "Deep"))
-        fileSystem.symbolicLinks.insert(lib("Application Support", "Sample"))
-
-        XCTAssertTrue(scan(target(), homebrew: find()).isEmpty)
-    }
-
     func testHomebrewReceiptMustNameTheTargetApp() throws {
         try installReceipt(json: receiptJSON(app: "Different.app", zap: ["trash": ["~/Library/Caches/ok"]]))
 
@@ -341,7 +483,7 @@ final class RelatedItemScannerTests: XCTestCase {
     }
 
     func testRejectsBadHomebrewToken() throws {
-        for token in ["Sample-Pro", "-sample", "sample pro", "sample\u{0}x", ".hidden"] {
+        for token in ["Sample-Pro", "-sample", "sample pro", "sample\u{0}x", ".hidden", "abc\n"] {
             fileSystem = MockFileSystem()
             try installReceipt(token: token, json: receiptJSON(zap: ["trash": ["~/Library/Caches/ok"]]))
             XCTAssertNil(find(), token)
