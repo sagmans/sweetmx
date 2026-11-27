@@ -15,10 +15,11 @@ enum UninstallPrompt {
     /// The key that flips the two-way choice, matched by character so it follows the keyboard layout.
     private static let choiceKey = "a"
 
-    /// Opens the sheet for the app path captured now. Does nothing when a sheet is already attached,
-    /// and says so in the footer while an earlier move still runs.
+    /// Opens the sheet for the app path captured now. Does nothing when uninstall is off (every way in
+    /// checks, and this is the last guard) or a sheet is already attached, and says so in the footer
+    /// while an earlier move still runs.
     static func present(bundlePath: String, for model: LauncherModel, over window: NSWindow?) {
-        guard model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil else { return }
+        guard model.isUninstallEnabled, model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil else { return }
         guard !model.uninstallInFlight else {
             model.showUninstallStatus(.info(DesignTokens.Copy.uninstallStillRunning))
             return

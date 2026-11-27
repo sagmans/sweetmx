@@ -38,7 +38,7 @@ struct FooterBar: View {
                 hint(keys: [.symbol(DesignTokens.Symbol.optionKey), .symbol(DesignTokens.Symbol.returnKey)], action: DesignTokens.Copy.actionCopy)
             }
         }
-        if model.selectedAppPath != nil {
+        if model.isUninstallEnabled, model.selectedAppPath != nil {
             hint(keys: [.text(DesignTokens.Copy.uninstallKeyCap, spokenAs: DesignTokens.Copy.uninstallKeySpoken)], action: DesignTokens.Copy.actionUninstall)
         }
         hint(keys: [.text(DesignTokens.Copy.escapeKeyCap, spokenAs: DesignTokens.Copy.escapeKeySpoken)], action: DesignTokens.Copy.actionClose)

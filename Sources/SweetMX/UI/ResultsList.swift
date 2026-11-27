@@ -244,11 +244,14 @@ struct ResultsList: View {
 
     /// Selects the clicked app first, found by its path at click time, then takes the same path as ⌘U,
     /// so the highlight and the sheet always name the app the person pointed at.
+    @ViewBuilder
     private func appMenu(path: String) -> some View {
-        Button(DesignTokens.Copy.uninstallMenu) {
-            // The row may have moved or gone since the menu was drawn; nothing opens for a vanished app.
-            guard model.selectApp(path: path) != nil else { return }
-            UninstallPrompt.present(bundlePath: path, for: model, over: ClipboardRemovalPrompt.launcherWindow)
+        if model.isUninstallEnabled {
+            Button(DesignTokens.Copy.uninstallMenu) {
+                // The row may have moved or gone since the menu was drawn; nothing opens for a vanished app.
+                guard model.selectApp(path: path) != nil else { return }
+                UninstallPrompt.present(bundlePath: path, for: model, over: ClipboardRemovalPrompt.launcherWindow)
+            }
         }
     }
 

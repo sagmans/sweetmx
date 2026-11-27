@@ -216,8 +216,9 @@ final class LauncherController: NSObject, NSWindowDelegate {
             }
         case let .uninstall(isRepeat):
             // Consumed in app mode even when nothing happens, so a held or stray ⌘U never reaches the
-            // search field; clipboard mode has no such action and lets the key through.
-            guard model.mode == .applications else { return false }
+            // search field; clipboard mode has no such action and lets the key through. With uninstall
+            // off the key is not ours in any mode, so it behaves as before the feature existed.
+            guard model.isUninstallEnabled, model.mode == .applications else { return false }
             if !isRepeat, let path = model.selectedAppPath {
                 UninstallPrompt.present(bundlePath: path, for: model, over: panel)
             }

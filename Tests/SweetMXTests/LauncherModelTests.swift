@@ -12,6 +12,8 @@ final class LauncherModelTests: XCTestCase {
     var mockWorkspace: MockWorkspace!
     var mockEventSource: MockEventSource!
     var model: LauncherModel!
+    /// Kept alive because the model reads the switch from it at use time.
+    var preferences: IsolatedPreferences!
     var searchService: SearchService!
     var clipboardManager: ClipboardManager!
 
@@ -42,12 +44,14 @@ final class LauncherModelTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private func makeModel() -> LauncherModel {
+    private func makeModel(uninstallEnabled: Bool = true) -> LauncherModel {
+        preferences = IsolatedPreferences(uninstallEnabled: uninstallEnabled)
         let created = LauncherModel(
             workspace: mockWorkspace,
             pasteboard: mockPasteboard,
             eventSource: mockEventSource,
-            fileSystem: mockFileSystem
+            fileSystem: mockFileSystem,
+            uninstallSettings: preferences.uninstallSettings
         )
         searchService = SearchService(indexer: ApplicationIndexer(fileSystem: mockFileSystem))
         created.setSearchService(searchService)
@@ -442,6 +446,46 @@ final class LauncherModelTests: XCTestCase {
     private static let uninstallCharacter = "u"
     private static let backspaceKeyCode: UInt16 = 51
     private static let uninstallKeyCode: UInt16 = 32
+
+    func testCommandUPassesThroughWhenUninstallIsOff() throws {
+        model = makeModel(uninstallEnabled: false)
+        let controller = LauncherController(model: model)
+        model.show()
+        model.select(0)
+        XCTAssertNotNil(model.selectedAppPath)
+        let event = try keyEvent(Self.uninstallKeyCode, characters: Self.uninstallCharacter, modifiers: .command)
+
+        let key = try XCTUnwrap(LauncherPanel.launcherKey(for: event))
+
+        XCTAssertEqual(controller.panel.keyHandler?(key), false, "Off: the key must pass through as before the feature")
+        XCTAssertNil(controller.panel.attachedSheet)
+        XCTAssertFalse(model.isUninstallEnabled)
+    }
+
+    func testUninstallSwitchIsOffByDefaultAndReadLive() {
+        let preferences = IsolatedPreferences()
+        let settings = preferences.uninstallSettings
+        XCTAssertFalse(settings.isEnabled)
+
+        preferences.defaults.set(true, forKey: UninstallSettings.preferenceKey)
+        XCTAssertTrue(settings.isEnabled, "A changed preference must apply without a new value")
+
+        preferences.defaults.removeObject(forKey: UninstallSettings.preferenceKey)
+        XCTAssertFalse(settings.isEnabled)
+    }
+
+    func testPresentRefusesWhenUninstallIsOff() {
+        model = makeModel(uninstallEnabled: false)
+        model.show()
+        model.select(0)
+        let path = model.selectedAppPath ?? ""
+        XCTAssertFalse(path.isEmpty)
+
+        UninstallPrompt.present(bundlePath: path, for: model, over: NSWindow())
+
+        XCTAssertFalse(model.uninstallInFlight)
+        XCTAssertNil(model.status)
+    }
 
     func testCommandUOpensNothingInClipboardMode() throws {
         try seedClipboardHistory([ClipboardItem(content: "hello")])

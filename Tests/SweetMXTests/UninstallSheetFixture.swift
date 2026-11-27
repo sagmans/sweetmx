@@ -52,6 +52,8 @@ final class UninstallSheetFixture {
     let identity = MockCodeIdentity()
     let finder = MockFinderTrash()
     let launcher: LauncherModel
+    /// Switch on, as the sheet only exists for someone who turned the feature on.
+    let preferences = IsolatedPreferences(uninstallEnabled: true)
     /// The target's bundle ID; the bundle ID items are named after it.
     let bundleID: String
     var finderHandOffEnabled = false
@@ -66,7 +68,8 @@ final class UninstallSheetFixture {
             workspace: workspace,
             pasteboard: MockPasteboard(),
             eventSource: MockEventSource(),
-            fileSystem: fileSystem
+            fileSystem: fileSystem,
+            uninstallSettings: preferences.uninstallSettings
         )
         fileSystem.writableDirectories.insert(Path.appFolder)
         fileSystem.addFile(at: Path.app, isDirectory: true)

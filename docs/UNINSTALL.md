@@ -8,6 +8,7 @@ maintainers.
 
 ## Contents
 
+- [Turn it on](#turn-it-on)
 - [What Cmd+U does](#what-cmdu-does)
 - [Choose what to move](#choose-what-to-move)
 - [Related files](#related-files)
@@ -19,6 +20,27 @@ maintainers.
 - [How to restore](#how-to-restore)
 - [Security promises](#security-promises)
 - [For maintainers](#for-maintainers)
+
+## Turn it on
+
+Uninstall is off by default. Its use on a real Mac is not proven yet, so
+nobody reaches it by accident. While it is off, `⌘U` does nothing in
+SweetMX, and the row menu and the footer do not show it.
+
+To turn it on, run this command in Terminal:
+
+```sh
+defaults write com.sagmans.sweetmx Uninstall.enabled -bool true
+```
+
+To turn it off again, run this command:
+
+```sh
+defaults delete com.sagmans.sweetmx Uninstall.enabled
+```
+
+SweetMX reads the setting each time you use it. You do not need to restart
+SweetMX.
 
 ## What Cmd+U does
 

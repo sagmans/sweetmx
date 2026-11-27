@@ -47,6 +47,9 @@ final class LauncherModel {
     let clips: ClipboardModel
     /// System seams of the uninstall flow, built from the same workspace and file system as app search.
     @ObservationIgnored let uninstall: UninstallDependencies
+    /// Whether uninstall is on; the key handler, row menu, footer and prompt all ask here, so one
+    /// switch decides every way in.
+    @ObservationIgnored let uninstallSettings: UninstallSettings
 
     /// Results of an uninstall that finished after the launcher closed, kept so the person still learns
     /// what moved. They wait until the launcher next opens in app mode; a clipboard opening leaves them
@@ -87,10 +90,16 @@ final class LauncherModel {
         category: "launcher"
     )
 
-    init(apps: AppSearchModel, clips: ClipboardModel, uninstall: UninstallDependencies) {
+    init(
+        apps: AppSearchModel,
+        clips: ClipboardModel,
+        uninstall: UninstallDependencies,
+        uninstallSettings: UninstallSettings = UninstallSettings()
+    ) {
         self.apps = apps
         self.clips = clips
         self.uninstall = uninstall
+        self.uninstallSettings = uninstallSettings
         wireSubmodels()
         observeBackgroundUpdates()
     }
@@ -101,7 +110,8 @@ final class LauncherModel {
         workspace: WorkspaceProtocol = SystemWorkspace(),
         pasteboard: PasteboardProtocol = SystemPasteboard(),
         eventSource: EventSourceProtocol = SystemEventSource(),
-        fileSystem: FileSystemProtocol = SystemFileManager()
+        fileSystem: FileSystemProtocol = SystemFileManager(),
+        uninstallSettings: UninstallSettings = UninstallSettings()
     ) {
         let apps = AppSearchModel(
             workspace: workspace,
@@ -113,7 +123,8 @@ final class LauncherModel {
             clips: ClipboardModel(
                 replay: ClipboardReplay(workspace: workspace, pasteboard: pasteboard, eventSource: eventSource)
             ),
-            uninstall: .live(workspace: workspace, fileSystem: fileSystem, apps: apps)
+            uninstall: .live(workspace: workspace, fileSystem: fileSystem, apps: apps),
+            uninstallSettings: uninstallSettings
         )
     }
 
@@ -455,6 +466,11 @@ final class LauncherModel {
     func removeClips(_ removal: ClipboardManager.HistoryRemoval) {
         guard isPresented, mode == .clipboard else { return }
         clips.remove(removal)
+    }
+
+    /// Read at use time so a changed preference applies at once.
+    var isUninstallEnabled: Bool {
+        uninstallSettings.isEnabled
     }
 
     /// Reports a finished uninstall in the footer. Only app search shows it, because the app list is

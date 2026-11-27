@@ -133,6 +133,9 @@ final class SnapshotTests: XCTestCase {
 
     // MARK: - Fixtures
 
+    /// Switch on so the footer keeps the hint the recorded images show; kept alive for use-time reads.
+    private let preferences = IsolatedPreferences(uninstallEnabled: true)
+
     private func makeModel() -> LauncherModel {
         let fileSystem = MockFileSystem()
         fileSystem.mockURLs = [URL(fileURLWithPath: Fixture.appSupportPath)]
@@ -140,7 +143,8 @@ final class SnapshotTests: XCTestCase {
             workspace: MockWorkspace(),
             pasteboard: MockPasteboard(),
             eventSource: MockEventSource(),
-            fileSystem: fileSystem
+            fileSystem: fileSystem,
+            uninstallSettings: preferences.uninstallSettings
         )
     }
 
