@@ -20,6 +20,8 @@ final class UninstallNoticeTests: XCTestCase {
         static let dockerPage = "https://docs.docker.com/desktop/uninstall/"
         static let karabinerPage = "https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/"
         static let snitchPage = "https://help.obdev.at/littlesnitch6/intro-uninstall"
+        static let dockerName = "Docker Desktop"
+        static let karabinerName = "Karabiner-Elements"
     }
 
     private var fileSystem: MockFileSystem!
@@ -134,14 +136,14 @@ final class UninstallNoticeTests: XCTestCase {
     func testDockerDesktopPointsToItsUninstaller() throws {
         XCTAssertEqual(
             notices(target(bundleID: Fixture.dockerID)),
-            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage))]
+            try [.vendorUninstaller(vendor: Fixture.dockerName, page: page(Fixture.dockerPage))]
         )
     }
 
     func testKarabinerPrefixPointsToItsUninstaller() throws {
         XCTAssertEqual(
             notices(target(bundleID: Fixture.karabinerID)),
-            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorKarabinerElements, page: page(Fixture.karabinerPage))]
+            try [.vendorUninstaller(vendor: Fixture.karabinerName, page: page(Fixture.karabinerPage))]
         )
     }
 
@@ -158,7 +160,7 @@ final class UninstallNoticeTests: XCTestCase {
         )
         XCTAssertEqual(
             notices(target(bundleID: Fixture.dockerID + ".helper")),
-            try [.vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage))]
+            try [.vendorUninstaller(vendor: Fixture.dockerName, page: page(Fixture.dockerPage))]
         )
     }
 
@@ -192,7 +194,7 @@ final class UninstallNoticeTests: XCTestCase {
         let result = try notices(target(bundleID: Fixture.dockerID), homebrew: receipt())
         XCTAssertEqual(result, try [
             .blocked(reason: .systemExtension, page: nil),
-            .vendorUninstaller(vendor: DesignTokens.Copy.vendorDockerDesktop, page: page(Fixture.dockerPage)),
+            .vendorUninstaller(vendor: Fixture.dockerName, page: page(Fixture.dockerPage)),
             .homebrew(command: "brew uninstall --cask \(Fixture.token)"),
         ])
     }

@@ -8,7 +8,7 @@ final nonisolated class MockFinderTrash: FinderTrashProtocol, @unchecked Sendabl
     private let stateLock = NSLock()
     private var outcomes: [String: FinderTrashOutcome] = [:]
     private var _defaultOutcome: FinderTrashOutcome = .moved
-    private var requested: [(url: URL, timeout: TimeInterval)] = []
+    private var requested: [(url: URL, timeout: Duration)] = []
 
     /// Outcome for an item that has no scripted outcome.
     var defaultOutcome: FinderTrashOutcome {
@@ -22,13 +22,13 @@ final nonisolated class MockFinderTrash: FinderTrashProtocol, @unchecked Sendabl
         outcomes[url.path] = outcome
     }
 
-    var moveToTrashCalls: [(url: URL, timeout: TimeInterval)] {
+    var moveToTrashCalls: [(url: URL, timeout: Duration)] {
         stateLock.lock()
         defer { stateLock.unlock() }
         return requested
     }
 
-    func moveToTrash(_ url: URL, timeout: TimeInterval) async -> FinderTrashOutcome {
+    func moveToTrash(_ url: URL, timeout: Duration) async -> FinderTrashOutcome {
         stateLock.withLock {
             requested.append((url: url, timeout: timeout))
             return outcomes[url.path] ?? _defaultOutcome

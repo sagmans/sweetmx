@@ -116,20 +116,22 @@ nonisolated struct VendorRule: Sendable {
         }
     }
 
-    /// Only a page that was read belongs here. Each row says how its ID was verified.
+    /// Only a page that was read belongs here. Each row says how its ID was verified. The product name
+    /// sits in its row beside the page, so a vendor is added or checked in one place; it is a proper
+    /// name, not copy to translate.
     static let table: [VendorRule] = [
         // Page: https://docs.docker.com/desktop/uninstall/
         // ID: read locally from the installed Docker.app Info.plist (`com.docker.docker`); the
         // trailing dot also covers its helper apps.
         VendorRule(
-            match: .prefix("com.docker."), vendor: DesignTokens.Copy.vendorDockerDesktop,
+            match: .prefix("com.docker."), vendor: "Docker Desktop",
             page: url("https://docs.docker.com/desktop/uninstall/"), blocksRemoval: false
         ),
         // Page: https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/
         // ID: public Homebrew cask definition (karabiner-elements.rb) names
         // `org.pqrs.Karabiner-Elements.Settings`, `org.pqrs.Karabiner-Menu` and similar.
         VendorRule(
-            match: .prefix("org.pqrs.karabiner"), vendor: DesignTokens.Copy.vendorKarabinerElements,
+            match: .prefix("org.pqrs.karabiner"), vendor: "Karabiner-Elements",
             page: url("https://karabiner-elements.pqrs.org/docs/manual/operation/uninstall/"), blocksRemoval: false
         ),
         // Page: https://help.obdev.at/littlesnitch6/intro-uninstall
@@ -137,7 +139,7 @@ nonisolated struct VendorRule: Sendable {
         // same cask lists helper IDs such as `at.obdev.LittleSnitchConfiguration`, so matching is
         // case-insensitive.
         VendorRule(
-            match: .prefix("at.obdev.littlesnitch"), vendor: DesignTokens.Copy.vendorLittleSnitch,
+            match: .prefix("at.obdev.littlesnitch"), vendor: "Little Snitch",
             page: url("https://help.obdev.at/littlesnitch6/intro-uninstall"), blocksRemoval: true
         ),
     ]

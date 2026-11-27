@@ -17,6 +17,7 @@ public nonisolated enum FinderTrashOutcome: Equatable, Sendable {
 ///
 /// Nonisolated and Sendable because the wait for Finder must not block the main actor.
 public nonisolated protocol FinderTrashProtocol: Sendable {
-    /// Asks Finder to move one item to Trash. Finder owns any password prompt.
-    func moveToTrash(_ url: URL, timeout: TimeInterval) async -> FinderTrashOutcome
+    /// Asks Finder to move one item to Trash. Finder owns any password prompt. A `Duration`, like
+    /// every other uninstall wait, so the policy names all of them in one unit.
+    func moveToTrash(_ url: URL, timeout: Duration) async -> FinderTrashOutcome
 }

@@ -313,12 +313,12 @@ You can restore items until you empty Trash. The sheet says the same:
 
 | Path | Holds |
 | ---- | ----- |
-| `Sources/SweetMX/Uninstall/` | The decisions: target, related files, Homebrew receipt, notices, Trash move, policy switch |
+| `Sources/SweetMX/Uninstall/` | The decisions: target, related files, Homebrew receipt, notices and vendor names, Trash move, policy switch and timeouts |
 | `Sources/SweetMX/UI/UninstallPrompt.swift` | The sheet host and the key rules of the sheet |
 | `Sources/SweetMX/UI/UninstallSheetModel.swift` | Every decision of the sheet, without views |
 | `Sources/SweetMX/UI/UninstallSheet.swift` | The confirmation view |
 | `Sources/SweetMX/UI/UninstallResultSheet.swift` | The result view |
-| `Sources/SweetMX/UI/DesignTokens+Uninstall.swift` | The copy, the timeouts and the sizes |
+| `Sources/SweetMX/UI/DesignTokens+Uninstall.swift` | The copy and the sizes |
 | `Sources/SweetMX/Shell/LauncherPanel.swift` | The `⌘U` key |
 | `Sources/SweetMX/UI/ResultsList.swift` | The context menu item |
 

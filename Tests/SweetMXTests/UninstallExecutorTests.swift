@@ -23,7 +23,7 @@ final class UninstallExecutorTests: XCTestCase {
         static let pollInterval = Duration.milliseconds(5)
         static let patientTimeout = Duration.seconds(5)
         static let quitAfterReads = 3
-        static let finderTimeoutValue: TimeInterval = 120
+        static let finderTimeoutValue = Duration.seconds(120)
         static let permissionCode = 513
         static let failureCode = 99
         static let finderFailureCode = -1728
@@ -453,7 +453,7 @@ private final class FileClearingFinder: FinderTrashProtocol {
         self.base = base
     }
 
-    func moveToTrash(_ url: URL, timeout: TimeInterval) async -> FinderTrashOutcome {
+    func moveToTrash(_ url: URL, timeout: Duration) async -> FinderTrashOutcome {
         let outcome = await base.moveToTrash(url, timeout: timeout)
         if outcome == .moved {
             fileSystem.existingFiles[url.path] = nil

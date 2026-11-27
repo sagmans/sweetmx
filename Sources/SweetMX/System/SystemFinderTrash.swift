@@ -23,7 +23,9 @@ public nonisolated struct SystemFinderTrash: FinderTrashProtocol {
     }
 
     /// A zero or negative timeout would mean "wait forever" to the Apple Event API.
-    private static let minimumTimeout: TimeInterval = 1
+    private static let minimumTimeout: Duration = .seconds(1)
+    /// The Apple Event API counts its timeout in seconds.
+    private static let apiTimeoutUnit: Duration = .seconds(1)
 
     /// The send blocks for as long as a password prompt stays open. A dedicated queue keeps that
     /// wait off the cooperative pool, which would otherwise lose a thread for the whole timeout.
@@ -31,8 +33,8 @@ public nonisolated struct SystemFinderTrash: FinderTrashProtocol {
 
     public init() {}
 
-    public func moveToTrash(_ url: URL, timeout: TimeInterval) async -> FinderTrashOutcome {
-        let bounded = max(timeout, Self.minimumTimeout)
+    public func moveToTrash(_ url: URL, timeout: Duration) async -> FinderTrashOutcome {
+        let bounded = max(timeout, Self.minimumTimeout) / Self.apiTimeoutUnit
         return await withCheckedContinuation { continuation in
             Self.sendQueue.async {
                 continuation.resume(returning: Self.send(url, timeout: bounded))

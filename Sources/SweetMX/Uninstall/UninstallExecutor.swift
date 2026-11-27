@@ -65,8 +65,8 @@ final class UninstallExecutor {
         resolver: UninstallTargetResolver,
         library: UserLibrary,
         finderHandOffEnabled: Bool = UninstallPolicy.finderHandOffEnabled,
-        quitTimeout: Duration = DesignTokens.Timing.uninstallQuitTimeout,
-        quitPollInterval: Duration = DesignTokens.Timing.uninstallQuitPollInterval
+        quitTimeout: Duration = UninstallPolicy.quitTimeout,
+        quitPollInterval: Duration = UninstallPolicy.quitPollInterval
     ) {
         self.fileSystem = fileSystem
         self.workspace = workspace
@@ -157,7 +157,7 @@ final class UninstallExecutor {
     /// Finder shows the administrator prompt, so SweetMX never handles a password. The app must really
     /// be gone afterwards: a "moved" answer alone is not trusted with the person's data.
     private func moveThroughFinder(_ url: URL) async -> UninstallItemResult.Outcome {
-        switch await finder.moveToTrash(url, timeout: DesignTokens.Timing.finderTrashTimeout) {
+        switch await finder.moveToTrash(url, timeout: UninstallPolicy.finderTrashTimeout) {
         case .moved:
             let fileSystem = fileSystem
             let stillThere = await Task.detached { fileSystem.fileExists(atPath: url.path) }.value
