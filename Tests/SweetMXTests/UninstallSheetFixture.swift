@@ -29,6 +29,8 @@ final class UninstallSheetFixture {
         static let metadata = ".metadata"
         static let receipt = ".metadata/INSTALL_RECEIPT.json"
         static let homebrewZapPath = "~/Library/WebKit/com.example.sample.helper"
+        /// Folders besides Preferences and Caches where the scan finds bundle ID items.
+        static let extraBundleIDFolders = ["HTTPStorages", "WebKit", "Logs", "Application Support"]
     }
 
     enum Size {
@@ -46,7 +48,10 @@ final class UninstallSheetFixture {
     let finder = MockFinderTrash()
     let launcher: LauncherModel
     var finderHandOffEnabled = false
-    var otherApps: [ApplicationInfo] = []
+    /// The app index; the target itself by default, as a loaded index lists it. Nil means no index.
+    var installedApps: [ApplicationInfo]? = [ApplicationInfo(name: Path.displayName, bundlePath: Path.app)]
+    /// Pinned so sizes read the same on every Mac.
+    static let locale = Locale(identifier: "en_US")
 
     init() {
         launcher = LauncherModel(
@@ -70,7 +75,7 @@ final class UninstallSheetFixture {
     }
 
     var dependencies: UninstallDependencies {
-        let apps = otherApps
+        let apps = installedApps
         return UninstallDependencies(
             fileSystem: fileSystem,
             workspace: workspace,
@@ -78,7 +83,8 @@ final class UninstallSheetFixture {
             finder: finder,
             ownBundleID: nil,
             finderHandOffEnabled: finderHandOffEnabled,
-            otherApps: { apps }
+            installedApps: { apps },
+            locale: Self.locale
         )
     }
 
@@ -109,6 +115,14 @@ final class UninstallSheetFixture {
     func addBundleIDItems() {
         put(Path.settings, size: Size.settings)
         put(Path.cache, size: Size.cache)
+    }
+
+    /// Every Library folder the scan reads by bundle ID, for a list longer than the sheet can show.
+    func addEveryBundleIDItem() {
+        addBundleIDItems()
+        for folder in Path.extraBundleIDFolders {
+            put(Path.library + "/" + folder + "/" + Path.bundleID, size: Size.settings)
+        }
     }
 
     /// A folder named like the app: selectable with the "Matched by name" mark, size unknown.

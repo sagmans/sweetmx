@@ -109,6 +109,7 @@ final class UninstallSheetSnapshotTests: XCTestCase {
     }
 
     /// Snapshots one scenario in dark and light. `makeModel` runs per look so each render starts fresh.
+    /// Every sheet must fit the launcher panel, so the height is checked as well as the image.
     private func assertSheet(
         file: StaticString = #filePath,
         testName: String = #function,
@@ -120,6 +121,7 @@ final class UninstallSheetSnapshotTests: XCTestCase {
             let window = host(model, look: look)
             let view = try XCTUnwrap(window.contentView)
             settle(view, model: model)
+            XCTAssertLessThanOrEqual(view.frame.height, DesignTokens.Metrics.uninstallSheetMaxHeight, file: file, line: line)
             assertSnapshot(
                 of: view,
                 as: .image(precision: Self.precision, perceptualPrecision: Self.perceptualPrecision),
@@ -166,6 +168,18 @@ final class UninstallSheetSnapshotTests: XCTestCase {
             model.setChoice(.everything)
             model.moveFocus(by: 1)
             return model
+        }
+    }
+
+    /// More rows than fit, under a Homebrew notice: the list scrolls and the sheet keeps the panel height.
+    func testSnapshotManyRowsFitThePanel() async throws {
+        try await assertSheet {
+            let world = try freshWorld {
+                $0.addEveryBundleIDItem()
+                $0.addContainer()
+                try $0.addHomebrew()
+            }
+            return await world.loadedModel()
         }
     }
 

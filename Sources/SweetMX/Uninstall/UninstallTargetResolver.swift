@@ -148,8 +148,10 @@ nonisolated struct UninstallTargetResolver: Sendable {
         return Self.sanitized(bundleURL.lastPathComponent)
     }
 
-    /// One short, visible line: the name is shown where a person decides to remove an app.
-    private static func sanitized(_ name: String) -> String {
+    /// One short, visible line: the name is shown where a person decides to remove an app. Shared with
+    /// the sheets, which show file names before the target resolves and in the result list, so no name
+    /// reaches the screen by another path.
+    static func sanitized(_ name: String) -> String {
         var line = String.UnicodeScalarView()
         for scalar in name.unicodeScalars {
             if CharacterSet.whitespacesAndNewlines.contains(scalar) {

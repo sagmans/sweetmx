@@ -12,10 +12,17 @@ import SwiftUI
 enum UninstallPrompt {
     /// Makes a failed key-monitor setup diagnosable; it never logs a path.
     private static let logger = Logger(subsystem: LogSubsystem.name, category: "uninstall")
+    /// The key that flips the two-way choice, matched by character so it follows the keyboard layout.
+    private static let choiceKey = "a"
 
-    /// Opens the sheet for the app path captured now. Does nothing when a sheet is already attached.
+    /// Opens the sheet for the app path captured now. Does nothing when a sheet is already attached,
+    /// and says so in the footer while an earlier move still runs.
     static func present(bundlePath: String, for model: LauncherModel, over window: NSWindow?) {
         guard model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil else { return }
+        guard !model.uninstallInFlight else {
+            model.showUninstallStatus(.info(DesignTokens.Copy.uninstallStillRunning))
+            return
+        }
         let sheetModel = UninstallSheetModel(bundlePath: bundlePath, launcher: model, dependencies: model.uninstall)
         sheetModel.onFinishedWithoutSheet = { [weak model, weak window] in
             guard let model else { return }
@@ -38,8 +45,8 @@ enum UninstallPrompt {
         }
         let sheetModel = UninstallSheetModel(results: results, launcher: model, dependencies: model.uninstall)
         guard show(sheetModel, title: DesignTokens.Copy.uninstallResultTitle, over: window) else {
-            // Kept for the next opening rather than lost.
-            model.pendingUninstallResults = results
+            // Kept for the next opening rather than lost, ahead of anything that arrived meanwhile.
+            model.pendingUninstallResults = results + (model.pendingUninstallResults ?? [])
             return
         }
     }
@@ -91,8 +98,9 @@ enum UninstallPrompt {
     }
 
     /// Returns true when the key was used. Plain Return is swallowed in the confirmation, so it can never
-    /// press the destructive button; in the result view it reaches Done, the default button.
-    private static func handle(_ event: NSEvent, model: UninstallSheetModel) -> Bool {
+    /// press the destructive button; in the result view it reaches Done, the default button. Internal so
+    /// tests can prove the key rules with synthetic events.
+    static func handle(_ event: NSEvent, model: UninstallSheetModel) -> Bool {
         let modifiers = event.modifierFlags.intersection(CopyClipShortcut.relevantModifiers)
         switch event.keyCode {
         case LauncherKeyCode.escape:
@@ -110,7 +118,14 @@ enum UninstallPrompt {
             model.moveFocus(by: event.keyCode == LauncherKeyCode.upArrow ? -1 : 1)
             return true
         default:
-            return false
+            guard modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == choiceKey,
+                  !model.showsResults
+            else { return false }
+            // Swallowed even when it does nothing, so ⌘A never selects text behind the sheet.
+            if !event.isARepeat {
+                model.toggleChoice()
+            }
+            return true
         }
     }
 

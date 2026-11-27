@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 @testable import SweetMX
 import XCTest
 
@@ -13,6 +13,14 @@ final class UninstallSheetModelTests: XCTestCase {
         static let permissionCode = 513
         static let vendorPage = "https://example.com/uninstall"
         static let unsafeLink = "file:///etc/hosts"
+        static let otherAppPath = "/Applications/Other.app"
+        static let otherAppName = "Other"
+        /// A file name with a right-to-left override and a newline, which must never reach the screen raw.
+        static let hostileAppPath = "/Applications/Sam\u{202E}ple\nPro.app"
+        static let cleanedHostileName = "Sample Pro"
+        /// Key code of "a"; the handler matches the character, the code only builds the event.
+        static let aKeyCode: UInt16 = 0
+        static let choiceKey = "a"
     }
 
     private var world: UninstallSheetFixture!
@@ -41,7 +49,7 @@ final class UninstallSheetModelTests: XCTestCase {
     }
 
     private func size(_ bytes: Int64) -> String {
-        DesignTokens.uninstallSize(bytes)
+        DesignTokens.uninstallSize(bytes, locale: UninstallSheetFixture.locale)
     }
 
     // MARK: - Choice and ticks
@@ -82,26 +90,128 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertFalse(model.rows.contains(where: \.isTicked))
     }
 
-    func testUntickingOneRowMovesChoiceBackToAppOnly() async throws {
+    func testUntickingOneRowAfterEverythingSelectsNoSegment() async throws {
         let model = await fullModel()
         model.setChoice(.everything)
 
         try model.toggle(index(of: Path.cache, in: model))
 
-        XCTAssertEqual(model.choice, .appOnly)
+        XCTAssertNil(model.choice)
         XCTAssertEqual(model.rows.filter(\.isTicked).count, 2)
     }
 
     func testTickingEveryUnlockedRowByHandSelectsEverything() async throws {
         let model = await fullModel()
 
+        XCTAssertEqual(model.choice, .appOnly)
         for path in [Path.settings, Path.cache] {
             try model.toggle(index(of: path, in: model))
-            XCTAssertEqual(model.choice, .appOnly)
+            XCTAssertNil(model.choice)
         }
         try model.toggle(index(of: Path.nameMatch, in: model))
 
         XCTAssertEqual(model.choice, .everything)
+    }
+
+    func testUntickingTheLastRowSelectsAppOnly() async throws {
+        let model = await fullModel()
+        try model.toggle(index(of: Path.cache, in: model))
+        XCTAssertNil(model.choice)
+
+        try model.toggle(index(of: Path.cache, in: model))
+
+        XCTAssertEqual(model.choice, .appOnly)
+    }
+
+    func testChoosingAppOnlyFromAMixClearsEveryTick() async throws {
+        let model = await fullModel()
+        try model.toggle(index(of: Path.cache, in: model))
+
+        model.setChoice(.appOnly)
+
+        XCTAssertEqual(model.choice, .appOnly)
+        XCTAssertFalse(model.rows.contains(where: \.isTicked))
+        XCTAssertEqual(model.confirmTitle, "Move 1 item to Trash (\(size(Size.app)))")
+    }
+
+    func testChoosingEverythingFromAMixTicksEveryUnlockedRow() async throws {
+        let model = await fullModel()
+        try model.toggle(index(of: Path.cache, in: model))
+
+        model.setChoice(.everything)
+
+        XCTAssertEqual(model.choice, .everything)
+        XCTAssertEqual(model.rows.filter(\.isTicked).count, 3)
+    }
+
+    // MARK: - Command-A
+
+    func testCommandAFlipsTheChoice() async {
+        let model = await fullModel()
+
+        model.toggleChoice()
+        XCTAssertEqual(model.choice, .everything)
+        model.toggleChoice()
+        XCTAssertEqual(model.choice, .appOnly)
+    }
+
+    func testCommandAFromAMixChoosesEverything() async throws {
+        let model = await fullModel()
+        try model.toggle(index(of: Path.cache, in: model))
+
+        model.toggleChoice()
+
+        XCTAssertEqual(model.choice, .everything)
+    }
+
+    func testCommandADoesNothingWhenBlockedRefusedOrMoving() async {
+        world.addBundleIDItems()
+        world.addSystemExtension()
+        let blocked = await world.loadedModel()
+        blocked.toggleChoice()
+        XCTAssertFalse(blocked.rows.contains(where: \.isTicked))
+
+        let refusedWorld = UninstallSheetFixture()
+        refusedWorld.fileSystem.symbolicLinks.insert(Path.app)
+        let refused = await refusedWorld.loadedModel()
+        refused.toggleChoice()
+        XCTAssertFalse(refused.canChoose)
+        refusedWorld.launcher.hide()
+
+        let movingWorld = UninstallSheetFixture()
+        movingWorld.addBundleIDItems()
+        let moving = await movingWorld.loadedModel()
+        moving.confirm()
+        moving.toggleChoice()
+        XCTAssertFalse(moving.rows.contains(where: \.isTicked))
+        await moving.moveTask?.value
+        movingWorld.launcher.hide()
+    }
+
+    func testCommandAKeyFlipsOnceAndIgnoresRepeats() async throws {
+        let model = await fullModel()
+
+        XCTAssertTrue(try UninstallPrompt.handle(commandA(repeat: false), model: model))
+        XCTAssertEqual(model.choice, .everything)
+        XCTAssertTrue(try UninstallPrompt.handle(commandA(repeat: true), model: model))
+        XCTAssertEqual(model.choice, .everything)
+    }
+
+    private func commandA(repeat isRepeat: Bool) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0, context: nil,
+            characters: Fixture.choiceKey, charactersIgnoringModifiers: Fixture.choiceKey, isARepeat: isRepeat,
+            keyCode: Fixture.aKeyCode
+        ))
+    }
+
+    func testArrowKeysAskForListFocusEvenAtTheEnd() async {
+        let model = await fullModel()
+
+        model.moveFocus(by: -1)
+        model.moveFocus(by: 1)
+
+        XCTAssertEqual(model.listFocusRequests, 2)
     }
 
     func testLockedRowsNeverToggle() async throws {
@@ -186,6 +296,17 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertTrue(world.fileSystem.trashItemCalls.isEmpty)
     }
 
+    func testRefusedAndBlockedSheetsDoNotAsk() async {
+        world.addSystemExtension()
+        let blocked = await world.loadedModel()
+        XCTAssertEqual(blocked.title, DesignTokens.Copy.uninstallRefusedTitle(Path.displayName))
+
+        let ready = UninstallSheetFixture()
+        let model = await ready.loadedModel()
+        XCTAssertEqual(model.title, DesignTokens.Copy.uninstallTitle(Path.displayName))
+        ready.launcher.hide()
+    }
+
     func testBlockingNoticeTurnsConfirmOff() async {
         world.addBundleIDItems()
         world.addSystemExtension()
@@ -208,6 +329,72 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertFalse(model.canConfirm)
         XCTAssertFalse(model.canCancel)
         await model.moveTask?.value
+    }
+
+    // MARK: - App index
+
+    func testIndexNotLoadedLocksNameRows() async {
+        world.installedApps = nil
+        world.addBundleIDItems()
+        world.addNameMatch()
+
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(model.rows.count, 3)
+        XCTAssertTrue(model.rows.allSatisfy(\.isLocked))
+        XCTAssertTrue(model.rows.allSatisfy { $0.item.lock == .secondCopyInstalled })
+        XCTAssertFalse(model.canChoose)
+    }
+
+    func testIndexWithoutTheTargetLocks() async {
+        world.installedApps = [ApplicationInfo(name: Fixture.otherAppName, bundlePath: Fixture.otherAppPath)]
+        world.addNameMatch()
+
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(model.rows.first?.item.lock, .secondCopyInstalled)
+    }
+
+    func testIndexListingTheTargetLeavesUniqueRowsSelectable() async {
+        world.addNameMatch()
+
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(model.rows.map(\.isLocked), [false])
+    }
+
+    // MARK: - Words
+
+    func testSizesFollowTheInjectedLocale() async {
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(model.sizeText(Size.app), "52.4 MB")
+    }
+
+    func testPermissionSentenceNamesFinderPasswordOnlyForTheApp() async {
+        let model = await world.loadedModel()
+        let denied = UninstallItemResult.Outcome.notMoved(.permissionDenied)
+
+        XCTAssertEqual(
+            model.sentence(for: UninstallItemResult(url: world.appURL, isApp: true, outcome: denied)),
+            DesignTokens.Copy.uninstallReason(.permissionDenied, isApp: true)
+        )
+        XCTAssertEqual(
+            model.sentence(for: UninstallItemResult(url: URL(fileURLWithPath: Path.cache), isApp: false, outcome: denied)),
+            DesignTokens.Copy.uninstallItemPermissionDenied
+        )
+        XCTAssertNotEqual(
+            DesignTokens.Copy.uninstallReason(.permissionDenied, isApp: true),
+            DesignTokens.Copy.uninstallItemPermissionDenied
+        )
+    }
+
+    func testNamesAreCleanedBeforeTheTargetResolves() {
+        world.launcher.show(mode: .applications)
+        let model = UninstallSheetModel(bundlePath: Fixture.hostileAppPath, launcher: world.launcher, dependencies: world.dependencies)
+
+        XCTAssertEqual(model.displayName, Fixture.cleanedHostileName)
+        XCTAssertEqual(model.itemName(URL(fileURLWithPath: Fixture.hostileAppPath)), Fixture.cleanedHostileName + ".app")
     }
 
     // MARK: - Administrator line
@@ -277,6 +464,7 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertNil(world.launcher.status)
     }
 
+    /// Closing during a move is not a cancel: the move ends normally and its results wait.
     func testResultsWaitWhenTheLauncherClosedDuringTheMove() async {
         let model = await fullModel()
         var reported = false
@@ -289,6 +477,39 @@ final class UninstallSheetModelTests: XCTestCase {
 
         XCTAssertTrue(reported)
         XCTAssertEqual(world.launcher.pendingUninstallResults?.map(\.url.path), [Path.app])
+        XCTAssertTrue(UninstallSheetModel.allMoved(world.launcher.pendingUninstallResults ?? []))
+        XCTAssertEqual(world.fileSystem.trashItemCalls.map(\.path), [Path.app])
+    }
+
+    func testLaterResultsAreAppendedToPendingOnes() async {
+        let earlier = UninstallItemResult(url: URL(fileURLWithPath: Fixture.otherAppPath), isApp: true, outcome: .moved(to: nil))
+        world.launcher.pendingUninstallResults = [earlier]
+        let model = await fullModel()
+
+        model.confirm()
+        world.launcher.hide()
+        model.sheetDidClose()
+        await model.moveTask?.value
+
+        XCTAssertEqual(world.launcher.pendingUninstallResults?.map(\.url.path), [Fixture.otherAppPath, Path.app])
+    }
+
+    func testOnlyOneMoveRunsAtATime() async {
+        let model = await fullModel()
+        let second = UninstallSheetModel(bundlePath: Path.app, launcher: world.launcher, dependencies: world.dependencies)
+        second.start()
+        await second.loadTask?.value
+
+        model.confirm()
+        XCTAssertTrue(world.launcher.uninstallInFlight)
+        second.confirm()
+        XCTAssertEqual(second.phase, .ready)
+        UninstallPrompt.present(bundlePath: Path.app, for: world.launcher, over: NSWindow())
+        XCTAssertEqual(world.launcher.status, .info(DesignTokens.Copy.uninstallStillRunning))
+
+        await model.moveTask?.value
+        XCTAssertFalse(world.launcher.uninstallInFlight)
+        XCTAssertEqual(world.fileSystem.trashItemCalls.map(\.path), [Path.app])
     }
 
     func testPendingAllMovedResultsBecomeTheStatusOnNextOpening() {
@@ -305,14 +526,19 @@ final class UninstallSheetModelTests: XCTestCase {
 
     // MARK: - Leaving
 
-    func testClosingWhileScanningStopsTheLoad() {
+    func testClosingWhileScanningStopsTheLoad() async {
+        world.addBundleIDItems()
         world.launcher.show(mode: .applications)
         let model = UninstallSheetModel(bundlePath: Path.app, launcher: world.launcher, dependencies: world.dependencies)
 
         model.start()
         model.sheetDidClose()
+        await model.loadTask?.value
 
         XCTAssertEqual(model.loadTask?.isCancelled, true)
+        XCTAssertEqual(model.phase, .scanning)
+        XCTAssertTrue(world.fileSystem.contentsOfDirectoryCalls.isEmpty)
+        XCTAssertTrue(world.fileSystem.allocatedSizeCalls.isEmpty)
     }
 
     func testShowInFinderClosesSheetAndLauncherThenReveals() async {

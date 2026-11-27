@@ -68,6 +68,8 @@ extension DesignTokens.Copy {
     static let uninstallSelectableSection = "Also move to Trash"
     static let uninstallLockedSection = "Not removed by SweetMX"
     static let uninstallNoRelatedItems = "No related files found."
+    /// Help and VoiceOver hint of the choice, so the one key that flips it can be found.
+    static let uninstallChoiceHelp = "Press Command-A to switch between App only and App and all related files."
     static let uninstallMatchedByName = "Matched by name"
     static let uninstallListedByHomebrew = "Listed by Homebrew"
 
@@ -90,6 +92,9 @@ extension DesignTokens.Copy {
         guard let size else { return "Move \(items) to Trash" }
         return sizeIsLowerBound ? "Move \(items) to Trash (at least \(size))" : "Move \(items) to Trash (\(size))"
     }
+
+    /// Footer status when ⌘U is pressed while a move still runs; one move at a time.
+    static let uninstallStillRunning = "An uninstall is still running."
 
     /// Footer status after everything moved.
     static func uninstallMovedStatus(_ count: Int) -> String {
@@ -149,7 +154,18 @@ extension DesignTokens.Copy {
         }
     }
 
-    static func uninstallReason(_ reason: UninstallItemResult.Reason) -> String {
+    /// Only the app can be handed to Finder with an administrator prompt; a Library item the account
+    /// cannot move gets the plain way out.
+    static func uninstallReason(_ reason: UninstallItemResult.Reason, isApp: Bool) -> String {
+        if reason == .permissionDenied, !isApp {
+            return uninstallItemPermissionDenied
+        }
+        return uninstallReason(reason)
+    }
+
+    static let uninstallItemPermissionDenied = "SweetMX could not move this item. Move it to Trash in Finder."
+
+    private static func uninstallReason(_ reason: UninstallItemResult.Reason) -> String {
         switch reason {
         case .appStillRunning: "The app did not quit. Quit it and try again."
         case .targetChanged: "The item changed after you confirmed, so it was left in place."
@@ -200,9 +216,10 @@ extension DesignTokens.Copy {
 }
 
 extension DesignTokens {
-    /// One size style for every byte count in the sheets, the same one Finder uses for files.
-    static func uninstallSize(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    /// One size style for every byte count in the sheets, the same one Finder uses for files, in the
+    /// locale the caller passes so tests and snapshots can pin one.
+    static func uninstallSize(_ bytes: Int64, locale: Locale) -> String {
+        bytes.formatted(.byteCount(style: .file).locale(locale))
     }
 }
 
@@ -211,6 +228,10 @@ extension DesignTokens.Metrics {
     static let uninstallSheetWidth: CGFloat = 520
     /// Tallest the related list grows before it scrolls, so the sheet stays near the launcher's height.
     static let uninstallListMaxHeight: CGFloat = 220
+    /// Shortest the list gets when notices take the room, so at least two rows stay visible.
+    static let uninstallListMinHeight: CGFloat = 96
+    /// Tallest the whole sheet may be: the launcher panel's height, so the sheet never hangs below it.
+    static let uninstallSheetMaxHeight: CGFloat = DesignTokens.Layout.appPanelSize.height
     /// Width of the kind column of a row; fits the longest kind and the "Listed by Homebrew" mark.
     static let uninstallKindColumnWidth: CGFloat = 104
     /// Tallest the result list grows before it scrolls.

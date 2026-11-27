@@ -32,7 +32,7 @@ struct UninstallResultView: View {
                 Spacer(minLength: 0)
                 // The only button and the default one: Return closes, because nothing is left to decide.
                 Button(DesignTokens.Copy.uninstallDone) { model.close() }
-                    .uninstallButtonStyle(prominent: true)
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .controlSize(.large)
             }
@@ -52,42 +52,24 @@ private struct UninstallResultRow: View {
         return nil
     }
 
-    private var sentence: String {
-        reason.map(DesignTokens.Copy.uninstallReason) ?? DesignTokens.Copy.uninstallResultMoved
-    }
-
     /// A missing item has nothing to show, so it gets no Finder button.
     private var canReveal: Bool {
         reason != nil && reason != .missing
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: DesignTokens.Metrics.tightSpacing) {
-            Image(systemName: reason == nil ? DesignTokens.Symbol.uninstallMoved : DesignTokens.Symbol.uninstallNotMoved)
-                .foregroundStyle(reason == nil ? DesignTokens.Palette.uninstallMoved : DesignTokens.Palette.error)
-                .frame(width: DesignTokens.Metrics.uninstallMarkWidth)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
-                Text(result.url.lastPathComponent)
-                    .font(DesignTokens.Typography.uninstallRowTitle)
-                Text(model.displayPath(result.url))
-                    .font(DesignTokens.Typography.uninstallRowDetail)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(result.url.path)
-                Text(sentence)
-                    .font(DesignTokens.Typography.uninstallRowDetail)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            if canReveal {
-                Button(DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(result.url) }
-                    .uninstallButtonStyle(prominent: false)
-                    .controlSize(.small)
-            }
-        }
-        .padding(DesignTokens.Metrics.uninstallRowPadding)
+        UninstallRowLayout(
+            symbol: reason == nil ? DesignTokens.Symbol.uninstallMoved : DesignTokens.Symbol.uninstallNotMoved,
+            symbolColor: reason == nil ? DesignTokens.Palette.uninstallMoved : DesignTokens.Palette.error,
+            kind: nil,
+            kindMark: nil,
+            title: model.itemName(result.url),
+            path: model.displayPath(result.url),
+            fullPath: result.url.path,
+            detail: model.sentence(for: result),
+            reveal: canReveal ? result.url : nil,
+            model: model
+        )
         .accessibilityElement(children: .combine)
     }
 }

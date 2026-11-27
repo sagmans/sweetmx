@@ -11,9 +11,9 @@ struct UninstallSheetView: View {
     var body: some View {
         Group {
             if model.showsResults {
-                UninstallResultView(model: model)
+                AnyView(UninstallResultView(model: model))
             } else {
-                UninstallConfirmationView(model: model)
+                AnyView(UninstallConfirmationView(model: model))
             }
         }
         .padding(DesignTokens.Metrics.uninstallSheetPadding)
@@ -28,30 +28,40 @@ struct UninstallSheetView: View {
 private struct UninstallConfirmationView: View {
     let model: UninstallSheetModel
     @FocusState private var listFocused: Bool
+    /// Measured heights of the whole confirmation and of its list, so the list can give up exactly the
+    /// room the rest needs and the sheet stays within the launcher panel.
+    @State private var contentHeight: CGFloat = 0
+    @State private var listHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallBlockSpacing) {
-            header
+            // Erased at each block boundary: the blocks change as a whole, and concrete nested view
+            // types multiply the generic code the app ships.
+            AnyView(header)
             if let refusal = model.refusal {
-                UninstallNoticeBox(
-                    title: DesignTokens.Copy.uninstallRefusedTitle(model.displayName),
-                    message: DesignTokens.Copy.uninstallRefusal(refusal),
-                    severity: .blocking
-                )
+                // The header already says the app cannot be removed; the box gives only the reason.
+                UninstallNoticeBox(title: nil, message: DesignTokens.Copy.uninstallRefusal(refusal), severity: .blocking)
             }
             ForEach(Array(model.notices.enumerated()), id: \.offset) { _, notice in
                 UninstallNoticeView(notice: notice, model: model)
             }
-            content
-            footer
+            AnyView(content)
+            AnyView(footer)
         }
+        .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
+    }
+
+    /// The list's height limit: what is left of the panel height after everything else, between the
+    /// minimum that keeps two rows visible and the usual maximum.
+    private var listLimit: CGFloat {
+        let room = DesignTokens.Metrics.uninstallSheetMaxHeight - 2 * DesignTokens.Metrics.uninstallSheetPadding
+            - (contentHeight - listHeight)
+        return min(max(room, DesignTokens.Metrics.uninstallListMinHeight), DesignTokens.Metrics.uninstallListMaxHeight)
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
-            Text(model.refusal == nil
-                ? DesignTokens.Copy.uninstallTitle(model.displayName)
-                : DesignTokens.Copy.uninstallRefusedTitle(model.displayName))
+            Text(model.title)
                 .font(DesignTokens.Typography.confirmationTitle)
                 .accessibilityAddTraits(.isHeader)
             Text(model.appLocation)
@@ -90,17 +100,20 @@ private struct UninstallConfirmationView: View {
     @ViewBuilder
     private var choice: some View {
         if model.rows.contains(where: { !$0.isLocked }) {
-            Picker(DesignTokens.Copy.uninstallChoiceLabel, selection: Binding(
+            // A mix of ticks selects no segment: neither name would be true.
+            Picker(DesignTokens.Copy.uninstallChoiceLabel, selection: Binding<UninstallSheetModel.Choice?>(
                 get: { model.choice },
-                set: { model.setChoice($0) }
+                set: { $0.map(model.setChoice) }
             )) {
-                Text(DesignTokens.Copy.uninstallChoiceAppOnly).tag(UninstallSheetModel.Choice.appOnly)
-                Text(DesignTokens.Copy.uninstallChoiceEverything).tag(UninstallSheetModel.Choice.everything)
+                Text(DesignTokens.Copy.uninstallChoiceAppOnly).tag(UninstallSheetModel.Choice?.some(.appOnly))
+                Text(DesignTokens.Copy.uninstallChoiceEverything).tag(UninstallSheetModel.Choice?.some(.everything))
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .accessibilityLabel(DesignTokens.Copy.uninstallChoiceLabel)
-            .disabled(model.phase != .ready)
+            .accessibilityHint(DesignTokens.Copy.uninstallChoiceHelp)
+            .help(DesignTokens.Copy.uninstallChoiceHelp)
+            .disabled(!model.canChoose)
         }
     }
 
@@ -111,7 +124,8 @@ private struct UninstallConfirmationView: View {
                 .font(DesignTokens.Typography.uninstallDetail)
                 .foregroundStyle(.secondary)
         } else {
-            UninstallRowList(model: model)
+            UninstallRowList(model: model, maxHeight: listLimit)
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { listHeight = $0 }
                 .focusable(model.phase == .ready)
                 .focused($listFocused)
                 .onKeyPress(.space) {
@@ -122,6 +136,7 @@ private struct UninstallConfirmationView: View {
                 .accessibilityLabel(DesignTokens.Copy.uninstallRelatedListLabel)
                 .accessibilityHint(DesignTokens.Copy.uninstallRelatedListHelp)
                 .onAppear { listFocused = true }
+                .onChange(of: model.listFocusRequests) { listFocused = true }
         }
     }
 
@@ -156,7 +171,7 @@ private struct UninstallConfirmationView: View {
         HStack(spacing: DesignTokens.Metrics.inlineSpacing) {
             Spacer(minLength: 0)
             Button(DesignTokens.Copy.cancel) { model.close() }
-                .uninstallButtonStyle(prominent: false)
+                .buttonStyle(.bordered)
                 .disabled(!model.canCancel)
             if model.isBlocked {
                 exitButton
@@ -166,7 +181,7 @@ private struct UninstallConfirmationView: View {
                 } label: {
                     Text(model.confirmTitle)
                 }
-                .uninstallButtonStyle(prominent: true)
+                .buttonStyle(.borderedProminent)
                 .tint(DesignTokens.Palette.destructiveAction)
                 .disabled(!model.canConfirm)
                 .help(DesignTokens.Copy.uninstallConfirmHelp)
@@ -182,12 +197,12 @@ private struct UninstallConfirmationView: View {
     private var exitButton: some View {
         if let page = model.blockingPage {
             Button(DesignTokens.Copy.uninstallOpenInstructions) { model.openInstructions(page) }
-                .uninstallButtonStyle(prominent: true)
+                .buttonStyle(.borderedProminent)
         } else {
             Button(DesignTokens.Copy.uninstallShowInFinder) {
                 model.showInFinder(URL(fileURLWithPath: model.bundlePath))
             }
-            .uninstallButtonStyle(prominent: true)
+            .buttonStyle(.borderedProminent)
         }
     }
 }
@@ -196,6 +211,7 @@ private struct UninstallConfirmationView: View {
 /// long list cannot push the buttons off the launcher.
 private struct UninstallRowList: View {
     let model: UninstallSheetModel
+    let maxHeight: CGFloat
     @State private var contentHeight: CGFloat = 0
 
     var body: some View {
@@ -207,7 +223,7 @@ private struct UninstallRowList: View {
                 }
                 .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
             }
-            .frame(height: min(contentHeight, DesignTokens.Metrics.uninstallListMaxHeight))
+            .frame(height: min(contentHeight, maxHeight))
             .onChange(of: model.focusedRow) { _, row in
                 if let row {
                     proxy.scrollTo(model.rows[row].id)
@@ -242,41 +258,18 @@ private struct UninstallRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: DesignTokens.Metrics.tightSpacing) {
-            Image(systemName: markSymbol)
-                .foregroundStyle(row.isLocked ? Color.secondary : Color.accentColor)
-                .frame(width: DesignTokens.Metrics.uninstallMarkWidth)
-            // A kind column, like the spec's sheet, so paths line up and each row takes two lines.
-            VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
-                Text(DesignTokens.Copy.uninstallKind(row.item.kind))
-                    .font(DesignTokens.Typography.uninstallRowTitle)
-                if let mark = matchMark {
-                    Text(mark)
-                        .font(DesignTokens.Typography.uninstallRowDetail)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: DesignTokens.Metrics.uninstallKindColumnWidth, alignment: .leading)
-            VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
-                Text(path)
-                    .font(DesignTokens.Typography.uninstallPath)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(row.item.url.path)
-                Text(detail)
-                    .font(DesignTokens.Typography.uninstallRowDetail)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            if row.isLocked {
-                Button(DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(row.item.url) }
-                    .uninstallButtonStyle(prominent: false)
-                    .controlSize(.small)
-                    .disabled(model.phase != .ready)
-            }
-        }
-        .padding(DesignTokens.Metrics.uninstallRowPadding)
+        UninstallRowLayout(
+            symbol: markSymbol,
+            symbolColor: row.isLocked ? .secondary : .accentColor,
+            kind: DesignTokens.Copy.uninstallKind(row.item.kind),
+            kindMark: matchMark,
+            title: nil,
+            path: path,
+            fullPath: row.item.url.path,
+            detail: detail,
+            reveal: row.isLocked ? row.item.url : nil,
+            model: model
+        )
         .background(
             DesignTokens.Palette.appTint.opacity(model.focusedRow == index ? DesignTokens.Palette.uninstallFocusOpacity : 0),
             in: RoundedRectangle(cornerRadius: DesignTokens.Metrics.uninstallCornerRadius)
@@ -287,8 +280,13 @@ private struct UninstallRowView: View {
         .accessibilityLabel(spokenLabel)
         .accessibilityValue(spokenState)
         .accessibilityAddTraits(row.isLocked ? [] : .isToggle)
-        .accessibilityAction(named: DesignTokens.Copy.uninstallToggleAction) { model.toggle(index) }
-        .accessibilityAction(named: DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(row.item.url) }
+        .accessibilityActions {
+            // A locked row cannot change, so it offers no action that would do nothing.
+            if !row.isLocked {
+                Button(DesignTokens.Copy.uninstallToggleAction) { model.toggle(index) }
+            }
+            Button(DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(row.item.url) }
+        }
     }
 
     private var markSymbol: String {
@@ -313,7 +311,7 @@ private struct UninstallRowView: View {
     }
 
     private var size: String {
-        row.item.sizeBytes.map(DesignTokens.uninstallSize) ?? DesignTokens.Copy.uninstallSizeUnknown
+        row.item.sizeBytes.map(model.sizeText) ?? DesignTokens.Copy.uninstallSizeUnknown
     }
 
     private var detail: String {
@@ -378,7 +376,8 @@ enum UninstallNoticeSeverity {
 
 /// The tinted box every notice and refusal uses, so a block always looks like a block.
 struct UninstallNoticeBox<Extra: View>: View {
-    let title: String
+    /// Nil when the sheet's own title already names the problem.
+    let title: String?
     let message: String
     let severity: UninstallNoticeSeverity
     @ViewBuilder var extra: () -> Extra
@@ -405,7 +404,9 @@ struct UninstallNoticeBox<Extra: View>: View {
                 .foregroundStyle(color)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
-                Text(title).font(DesignTokens.Typography.uninstallRowTitle)
+                if let title {
+                    Text(title).font(DesignTokens.Typography.uninstallRowTitle)
+                }
                 Text(message)
                     .font(DesignTokens.Typography.uninstallDetail)
                     .fixedSize(horizontal: false, vertical: true)
@@ -424,30 +425,71 @@ struct UninstallNoticeBox<Extra: View>: View {
 
 extension UninstallNoticeBox where Extra == EmptyView {
     /// A notice with nothing below its message, such as a refusal.
-    init(title: String, message: String, severity: UninstallNoticeSeverity) {
+    init(title: String?, message: String, severity: UninstallNoticeSeverity) {
         self.init(title: title, message: message, severity: severity) { EmptyView() }
     }
 }
 
-/// Glass buttons like the clipboard prompt, swapped for plain bordered ones in snapshot mode, where
-/// glass would sample whatever sits behind the test window.
-private struct UninstallButtonStyle: ViewModifier {
-    let prominent: Bool
-    @Environment(\.launcherSnapshotMode) private var snapshotMode
+/// The one row layout of both sheets: a mark, an optional kind column, the lines, and Show in Finder
+/// for an item that stays. Shared so the two lists read alike and the app carries one row view.
+struct UninstallRowLayout: View {
+    let symbol: String
+    let symbolColor: Color
+    /// The kind column of a related row; nil in the result list, which names the item instead.
+    let kind: String?
+    let kindMark: String?
+    /// A bold name above the path; nil when the kind column already names the row.
+    let title: String?
+    let path: String
+    /// Shown as help, because the visible path may be truncated in the middle.
+    let fullPath: String
+    let detail: String
+    /// The item Show in Finder reveals; nil hides the button.
+    let reveal: URL?
+    let model: UninstallSheetModel
 
-    func body(content: Content) -> some View {
-        switch (prominent, snapshotMode) {
-        case (true, false): content.buttonStyle(.glassProminent)
-        case (false, false): content.buttonStyle(.glass)
-        case (true, true): content.buttonStyle(.borderedProminent)
-        case (false, true): content.buttonStyle(.bordered)
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: DesignTokens.Metrics.tightSpacing) {
+            Image(systemName: symbol)
+                .foregroundStyle(symbolColor)
+                .frame(width: DesignTokens.Metrics.uninstallMarkWidth)
+                .accessibilityHidden(true)
+            if let kind {
+                // A kind column, like the spec's sheet, so paths line up and each row takes two lines.
+                VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
+                    Text(kind)
+                        .font(DesignTokens.Typography.uninstallRowTitle)
+                    if let kindMark {
+                        Text(kindMark)
+                            .font(DesignTokens.Typography.uninstallRowDetail)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(width: DesignTokens.Metrics.uninstallKindColumnWidth, alignment: .leading)
+            }
+            VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallLineSpacing) {
+                if let title {
+                    Text(title)
+                        .font(DesignTokens.Typography.uninstallRowTitle)
+                }
+                Text(path)
+                    .font(DesignTokens.Typography.uninstallPath)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(fullPath)
+                Text(detail)
+                    .font(DesignTokens.Typography.uninstallRowDetail)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            if let reveal {
+                Button(DesignTokens.Copy.uninstallShowInFinder) { model.showInFinder(reveal) }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(model.phase == .moving)
+            }
         }
-    }
-}
-
-extension View {
-    /// The button style of the uninstall sheets; see `UninstallButtonStyle`.
-    func uninstallButtonStyle(prominent: Bool) -> some View {
-        modifier(UninstallButtonStyle(prominent: prominent))
+        .padding(DesignTokens.Metrics.uninstallRowPadding)
     }
 }

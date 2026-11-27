@@ -6,6 +6,16 @@ import Foundation
 /// names, a few certain name matches and Homebrew's own cleanup list, and it locks every row it is
 /// not sure about. It reads only through the injected seams, so tests never touch a real Library.
 nonisolated struct RelatedItemScanner: Sendable {
+    /// What the scan knows about the other installed apps. An index that has not loaded, or that does
+    /// not list the target yet, cannot rule out a second copy or a same-named app, so the scan must
+    /// lock as if both exist instead of reading an empty list as "no other apps".
+    enum InstalledApps: Sendable {
+        /// The index is loaded and lists the target; the array is every indexed app.
+        case listed([ApplicationInfo])
+        /// The index is missing or stale; every row is locked.
+        case unknown
+    }
+
     /// One place in the Library where an app leaves data under its bundle ID.
     private struct Rule {
         let folder: String
@@ -86,15 +96,24 @@ nonisolated struct RelatedItemScanner: Sendable {
         self.fileSystem = fileSystem
     }
 
-    /// `otherApps` is the rest of the index, to detect a shared name or bundle ID.
-    func scan(_ target: UninstallTarget, otherApps: [ApplicationInfo], homebrew: HomebrewReceipt?) -> [RelatedItem] {
+    /// `installedApps` is the app index, to detect a shared name or bundle ID; when it is unknown, the
+    /// scan fails closed and treats both as present.
+    func scan(_ target: UninstallTarget, installedApps: InstalledApps, homebrew: HomebrewReceipt?) -> [RelatedItem] {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
         let library = URL(fileURLWithPath: fileSystem.homeDirectoryForCurrentUser.path)
             .appendingPathComponent(Self.libraryFolder)
-        let others = otherApps.filter { $0.bundlePath != target.bundleURL.path }
-        let secondCopy = hasSecondCopy(of: target, among: others)
-        let nameIsCertain = target.displayName.count >= Self.minimumNameLength
-            && !others.contains { $0.name.caseInsensitiveCompare(target.displayName) == .orderedSame }
+        let secondCopy: Bool
+        let nameIsCertain: Bool
+        switch installedApps {
+        case .unknown:
+            secondCopy = true
+            nameIsCertain = false
+        case let .listed(apps):
+            let others = apps.filter { $0.bundlePath != target.bundleURL.path }
+            secondCopy = hasSecondCopy(of: target, among: others)
+            nameIsCertain = target.displayName.count >= Self.minimumNameLength
+                && !others.contains { $0.name.caseInsensitiveCompare(target.displayName) == .orderedSame }
+        }
 
         var candidates = bundleIDCandidates(target, library: library)
         candidates += nameCandidates(target, library: library, isCertain: nameIsCertain)

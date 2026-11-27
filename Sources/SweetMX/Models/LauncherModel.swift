@@ -49,8 +49,12 @@ final class LauncherModel {
     @ObservationIgnored let uninstall: UninstallDependencies
 
     /// Results of an uninstall that finished after the launcher closed, kept so the person still learns
-    /// what moved; the shell shows them when the launcher opens next.
+    /// what moved. They wait until the launcher next opens in app mode; a clipboard opening leaves them
+    /// here. Later results are appended, never written over, so no outcome is lost.
     @ObservationIgnored var pendingUninstallResults: [UninstallItemResult]?
+    /// True from the moment a move starts until it reports. One move at a time: a second sheet could
+    /// offer files the first move is already taking, and its results would race the first one's.
+    @ObservationIgnored var uninstallInFlight = false
     /// Footer line after an uninstall moved everything; one session long, like a launch failure.
     private(set) var uninstallStatus: LauncherStatus?
 
@@ -448,6 +452,11 @@ final class LauncherModel {
     func showUninstallStatus(_ status: LauncherStatus) {
         guard isPresented, mode == .applications else { return }
         uninstallStatus = status
+    }
+
+    /// Stores results for the next app-mode opening, after any that already wait there.
+    func keepUninstallResults(_ results: [UninstallItemResult]) {
+        pendingUninstallResults = (pendingUninstallResults ?? []) + results
     }
 
     /// Pauses or resumes capture so the user can copy secrets without them entering history.

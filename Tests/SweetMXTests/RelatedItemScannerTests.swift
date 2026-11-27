@@ -62,7 +62,7 @@ final class RelatedItemScannerTests: XCTestCase {
         others: [ApplicationInfo] = [],
         homebrew: HomebrewReceipt? = nil
     ) -> [RelatedItem] {
-        RelatedItemScanner(fileSystem: fileSystem).scan(target, otherApps: others, homebrew: homebrew)
+        RelatedItemScanner(fileSystem: fileSystem).scan(target, installedApps: .listed(others), homebrew: homebrew)
     }
 
     private func installOther(path: String, bundleID: String) throws {
@@ -226,6 +226,19 @@ final class RelatedItemScannerTests: XCTestCase {
         let twin = ApplicationInfo(name: Fixture.displayName, bundlePath: "/Applications/Twin/Sample Pro.app")
 
         XCTAssertEqual(scan(target(), others: [twin]).first?.lock, .secondCopyInstalled)
+    }
+
+    /// An index that is not loaded cannot rule out a twin or a same-named app, so nothing is selectable.
+    func testUnknownIndexLocksEveryRow() {
+        let cache = lib("Caches", Fixture.bundleID)
+        let named = lib("Application Support", "sample pro")
+        put(cache)
+        put(named)
+
+        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target(), installedApps: .unknown, homebrew: nil)
+
+        XCTAssertEqual(Set(items.map(\.url.path)), [cache, named])
+        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
     }
 
     func testLockPrecedence() throws {

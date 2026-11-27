@@ -15,9 +15,12 @@ struct UninstallDependencies {
     /// Read by the sheet to pick the administrator line and passed to the executor, so both always
     /// follow the same policy.
     let finderHandOffEnabled: Bool
-    /// The rest of the app index, read when a sheet opens. The scan needs it to lock files that a
-    /// second copy or a same-named app may share, so it must be the live index, never a fixed list.
-    let otherApps: () -> [ApplicationInfo]
+    /// The live app index, read when a sheet opens. The scan needs it to lock files that a second copy
+    /// or a same-named app may share. Nil while there is no index, so the sheet can lock every row
+    /// instead of mistaking a missing index for "no other apps".
+    let installedApps: () -> [ApplicationInfo]?
+    /// Formats byte counts in the sheets; injected so tests pin one locale and the app follows the Mac's.
+    let locale: Locale
 
     /// Production seams around the workspace and file system the launcher already owns; `apps` gives
     /// the live index once the app delegate supplies it.
@@ -29,7 +32,8 @@ struct UninstallDependencies {
             finder: SystemFinderTrash(),
             ownBundleID: Bundle.main.bundleIdentifier,
             finderHandOffEnabled: UninstallPolicy.finderHandOffEnabled,
-            otherApps: { [weak apps] in apps?.searchService?.applicationSnapshot().applications ?? [] }
+            installedApps: { [weak apps] in apps?.searchService?.applicationSnapshot().applications },
+            locale: .autoupdatingCurrent
         )
     }
 }

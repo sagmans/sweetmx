@@ -19,6 +19,7 @@ final class UninstallSheetModel {
     }
 
     /// The two-way choice at the top. It starts on `appOnly` so the destructive choice is a deliberate act.
+    /// It is derived from the ticks, never stored, so it cannot claim a scope the list does not show.
     enum Choice: Hashable {
         case appOnly
         case everything
@@ -51,9 +52,11 @@ final class UninstallSheetModel {
     private(set) var notices: [UninstallNotice] = []
     /// Selectable rows first, then locked ones, so the list reads "what can move" before "what stays".
     private(set) var rows: [Row] = []
-    private(set) var choice: Choice = .appOnly
     /// The row the arrow keys point at; nil until the person presses one.
     private(set) var focusedRow: Int?
+    /// Bumped by every arrow key, so the view moves keyboard focus to the list even when the row stays
+    /// the same; otherwise Space could still press whatever button had focus.
+    private(set) var listFocusRequests = 0
     /// Whether the app runs right now, so the sheet can say it will be asked to quit.
     private(set) var appIsRunning = false
     /// One result per item once the move ended, in executor order (app first).
@@ -61,11 +64,10 @@ final class UninstallSheetModel {
 
     /// The path the person chose, captured when the sheet opened so a later list change cannot swap it.
     let bundlePath: String
-    /// Name for the header before (or instead of) a resolved target.
+    /// Name for the header before (or instead of) a resolved target, cleaned the way the resolver cleans
+    /// the target's name, because a file name can hold control or direction characters.
     var displayName: String {
-        target?.displayName ?? (bundlePath as NSString).lastPathComponent.replacingOccurrences(
-            of: Self.appSuffix, with: "", options: [.anchored, .backwards, .caseInsensitive]
-        )
+        target?.displayName ?? itemName(URL(fileURLWithPath: bundlePath).deletingPathExtension())
     }
 
     /// Asks the sheet host to close the sheet; set by `UninstallPrompt`.
@@ -84,7 +86,8 @@ final class UninstallSheetModel {
     /// False once the host closed the sheet, so a late result goes to the launcher instead.
     @ObservationIgnored private var isSheetOpen = true
 
-    private static let appSuffix = ".app"
+    /// Stands for the home folder in shown paths, as Finder and Terminal write it.
+    private static let homeAbbreviation = "~"
     /// Only web pages may open from a notice; the vendor table holds nothing else, and this keeps it so.
     private static let allowedLinkScheme = "https"
 
@@ -127,6 +130,24 @@ final class UninstallSheetModel {
         phase == .ready && target != nil && !isBlocked
     }
 
+    /// The header question, or the refusal title when nothing can move, so a blocked sheet never asks.
+    var title: String {
+        isBlocked ? DesignTokens.Copy.uninstallRefusedTitle(displayName) : DesignTokens.Copy.uninstallTitle(displayName)
+    }
+
+    /// "Everything" when every selectable row is ticked, "app only" when none is, and nil for a mix, so
+    /// the control never names a scope other than the one the button will move.
+    var choice: Choice? {
+        let selectable = rows.filter { !$0.isLocked }
+        guard selectable.contains(where: \.isTicked) else { return .appOnly }
+        return selectable.allSatisfy(\.isTicked) ? .everything : nil
+    }
+
+    /// The choice shows, and ⌘A works, only when a row can be ticked and the sheet is not busy.
+    var canChoose: Bool {
+        phase == .ready && !isBlocked && rows.contains { !$0.isLocked }
+    }
+
     var hasLockedRows: Bool {
         rows.contains(where: \.isLocked)
     }
@@ -145,7 +166,7 @@ final class UninstallSheetModel {
         let ticked = rows.filter { $0.isTicked && !$0.isLocked }
         let sizes = [appSizeBytes] + ticked.map(\.item.sizeBytes)
         let known = sizes.compactMap(\.self)
-        let size = known.isEmpty ? nil : DesignTokens.uninstallSize(known.reduce(0, +))
+        let size = known.isEmpty ? nil : sizeText(known.reduce(0, +))
         return DesignTokens.Copy.uninstallMoveButton(
             count: 1 + ticked.count, size: size, sizeIsLowerBound: known.count < sizes.count
         )
@@ -156,11 +177,27 @@ final class UninstallSheetModel {
         let home = dependencies.fileSystem.homeDirectoryForCurrentUser.standardizedFileURL.path
         let path = url.path
         guard path == home || path.hasPrefix(home + "/") else { return path }
-        return "~" + path.dropFirst(home.count)
+        return Self.homeAbbreviation + path.dropFirst(home.count)
+    }
+
+    /// A file's name as the sheets show it, through the resolver's cleaning.
+    func itemName(_ url: URL) -> String {
+        UninstallTargetResolver.sanitized(url.lastPathComponent)
+    }
+
+    /// Byte counts in the injected locale, so every size in one sheet reads the same way.
+    func sizeText(_ bytes: Int64) -> String {
+        DesignTokens.uninstallSize(bytes, locale: dependencies.locale)
+    }
+
+    /// The sentence under one result row; the Finder hint differs for the app and for Library items.
+    func sentence(for result: UninstallItemResult) -> String {
+        guard case let .notMoved(reason) = result.outcome else { return DesignTokens.Copy.uninstallResultMoved }
+        return DesignTokens.Copy.uninstallReason(reason, isApp: result.isApp)
     }
 
     var appLocation: String {
-        let size = appSizeBytes.map(DesignTokens.uninstallSize) ?? DesignTokens.Copy.uninstallSizeUnknown
+        let size = appSizeBytes.map(sizeText) ?? DesignTokens.Copy.uninstallSizeUnknown
         return DesignTokens.Copy.uninstallLocation(displayPath(URL(fileURLWithPath: bundlePath)), size: size)
     }
 
@@ -174,29 +211,46 @@ final class UninstallSheetModel {
         let resolver = UninstallTargetResolver(
             fileSystem: fileSystem, codeIdentity: dependencies.codeIdentity, ownBundleID: dependencies.ownBundleID
         )
-        let otherApps = dependencies.otherApps()
+        let installedApps = dependencies.installedApps()
         loadTask = Task { [weak self] in
-            let outcome = await Self.load(path: path, resolver: resolver, fileSystem: fileSystem, otherApps: otherApps)
-            guard !Task.isCancelled, let self else { return }
+            let outcome = try? await Self.load(path: path, resolver: resolver, fileSystem: fileSystem, installedApps: installedApps)
+            guard let outcome, !Task.isCancelled, let self else { return }
             apply(outcome)
         }
     }
 
-    /// Every disk read of the sheet in one place, on the global executor.
+    /// Every disk read of the sheet in one place, on the global executor. It stops between steps once
+    /// the sheet closed, so a closed sheet does not keep walking the Library.
     @concurrent
     private static func load(
-        path: String, resolver: UninstallTargetResolver, fileSystem: FileSystemProtocol, otherApps: [ApplicationInfo]
-    ) async -> LoadOutcome {
+        path: String, resolver: UninstallTargetResolver, fileSystem: FileSystemProtocol, installedApps: [ApplicationInfo]?
+    ) async throws -> LoadOutcome {
+        try Task.checkCancellation()
+        let target: UninstallTarget
         switch resolver.resolve(bundlePath: path) {
         case let .failure(refusal):
             return .refused(refusal)
-        case let .success(target):
-            let homebrew = HomebrewReceipt.find(for: target, fileSystem: fileSystem)
-            let items = RelatedItemScanner(fileSystem: fileSystem).scan(target, otherApps: otherApps, homebrew: homebrew)
-            let notices = UninstallNotice.notices(for: target, homebrew: homebrew, fileSystem: fileSystem)
-            let size = fileSystem.allocatedSize(at: target.bundleURL, limit: RelatedItemScanner.sizeEntryLimit)
-            return .ready(target: target, appSize: size, items: items, notices: notices)
+        case let .success(resolved):
+            target = resolved
         }
+        try Task.checkCancellation()
+        let homebrew = HomebrewReceipt.find(for: target, fileSystem: fileSystem)
+        let index = index(installedApps, listing: target)
+        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target, installedApps: index, homebrew: homebrew)
+        try Task.checkCancellation()
+        let notices = UninstallNotice.notices(for: target, homebrew: homebrew, fileSystem: fileSystem)
+        try Task.checkCancellation()
+        let size = fileSystem.allocatedSize(at: target.bundleURL, limit: RelatedItemScanner.sizeEntryLimit)
+        return .ready(target: target, appSize: size, items: items, notices: notices)
+    }
+
+    /// An index that is missing, or that does not list the app being removed, is still loading or out of
+    /// date, so it cannot prove that no twin or same-named app exists.
+    private nonisolated static func index(
+        _ apps: [ApplicationInfo]?, listing target: UninstallTarget
+    ) -> RelatedItemScanner.InstalledApps {
+        guard let apps, apps.contains(where: { $0.bundlePath == target.bundleURL.path }) else { return .unknown }
+        return .listed(apps)
     }
 
     private func apply(_ outcome: LoadOutcome) {
@@ -216,22 +270,24 @@ final class UninstallSheetModel {
 
     // MARK: - Choosing
 
-    /// "Everything" ticks every row without a lock; "app only" unticks all.
+    /// "Everything" ticks every row without a lock; "app only" unticks all, from any mix.
     func setChoice(_ newChoice: Choice) {
         guard phase == .ready, !isBlocked else { return }
-        choice = newChoice
         for index in rows.indices where !rows[index].isLocked {
             rows[index].isTicked = newChoice == .everything
         }
     }
 
-    /// A locked row never changes. The choice stays on "everything" only while every selectable row is
-    /// ticked, so the control never claims more than the list shows.
+    /// The ⌘A key: one key flips the scope. A mix goes to "everything", the wider choice the key names.
+    func toggleChoice() {
+        guard canChoose else { return }
+        setChoice(choice == .everything ? .appOnly : .everything)
+    }
+
+    /// A locked row never changes; the choice follows from the ticks.
     func toggle(_ index: Int) {
         guard phase == .ready, !isBlocked, rows.indices.contains(index), !rows[index].isLocked else { return }
         rows[index].isTicked.toggle()
-        let selectable = rows.filter { !$0.isLocked }
-        choice = !selectable.isEmpty && selectable.allSatisfy(\.isTicked) ? .everything : .appOnly
     }
 
     func toggleFocusedRow() {
@@ -244,15 +300,18 @@ final class UninstallSheetModel {
         guard phase == .ready, !isBlocked, !rows.isEmpty else { return }
         let next = (focusedRow ?? (delta > 0 ? -1 : rows.count)) + delta
         focusedRow = min(max(next, 0), rows.count - 1)
+        listFocusRequests += 1
     }
 
     // MARK: - Moving
 
     /// Sends the app and only the ticked rows without a lock to the executor, so nothing the person did
-    /// not choose, and nothing the scan locked, can move.
+    /// not choose, and nothing the scan locked, can move. Once started the move always runs to its end:
+    /// closing the sheet or the launcher only changes where its results are shown.
     func confirm() {
-        guard canConfirm, let target else { return }
+        guard canConfirm, !launcher.uninstallInFlight, let target else { return }
         phase = .moving
+        launcher.uninstallInFlight = true
         let request = UninstallRequest(
             target: target,
             items: rows.filter { $0.isTicked && !$0.isLocked }.map(\.item)
@@ -280,8 +339,9 @@ final class UninstallSheetModel {
     private func finish(_ results: [UninstallItemResult]) {
         self.results = results
         phase = .finished
+        launcher.uninstallInFlight = false
         guard isSheetOpen, launcher.isPresented else {
-            launcher.pendingUninstallResults = results
+            launcher.keepUninstallResults(results)
             onFinishedWithoutSheet()
             return
         }
