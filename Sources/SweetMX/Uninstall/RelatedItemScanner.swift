@@ -188,8 +188,10 @@ nonisolated struct RelatedItemScanner: Sendable {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
-    /// The system may name the target through a link or a volume prefix. Only a path that still differs
-    /// after links are resolved counts as a second copy, so any doubt keeps the rows locked.
+    /// The system may name the target through a link. Only a path that still differs after links are
+    /// resolved counts as a second copy, so any doubt keeps the rows locked; a spelling that no link
+    /// explains (a volume prefix) stays a second copy. Callers compare the plain paths first only to
+    /// skip this disk read.
     private func resolvedStandardPath(of url: URL) -> String {
         Self.standardPath(fileSystem.resolvingSymlinks(url).path)
     }
