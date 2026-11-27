@@ -31,9 +31,13 @@ nonisolated struct UninstallTargetResolver: Sendable {
     private static let bundleExtension = "app"
     private static let contentsFolder = "Contents"
     private static let rootPath = "/"
-    /// The name appears in a confirmation prompt; the cap keeps a hostile name from filling it.
-    private static let displayNameMaxLength = 120
-    private static let nameSeparator: Character = " "
+    /// The name appears in a confirmation prompt; the cap keeps a hostile name from filling it. It
+    /// counts Unicode scalars, not characters, because one character can stack any number of
+    /// combining marks and would slip past a character count.
+    private static let displayNameMaxScalars = 120
+    /// What every run of white space becomes. A scalar, so it is appended without a conversion that
+    /// could fail.
+    private static let nameSeparator: Unicode.Scalar = " "
     /// Characters that can hide or reorder text (controls, bidi overrides, zero-width marks, line breaks).
     private static let strippedCategories: Set<Unicode.GeneralCategory> = [
         .control, .format, .lineSeparator, .paragraphSeparator,
@@ -155,12 +159,13 @@ nonisolated struct UninstallTargetResolver: Sendable {
         var line = String.UnicodeScalarView()
         for scalar in name.unicodeScalars {
             if CharacterSet.whitespacesAndNewlines.contains(scalar) {
-                line.append(Unicode.Scalar(String(nameSeparator))!)
+                line.append(nameSeparator)
             } else if !strippedCategories.contains(scalar.properties.generalCategory) {
                 line.append(scalar)
             }
         }
-        let words = String(line).split(separator: nameSeparator, omittingEmptySubsequences: true)
-        return String(words.joined(separator: String(nameSeparator)).prefix(displayNameMaxLength))
+        let words = String(line).split(separator: Character(nameSeparator), omittingEmptySubsequences: true)
+        let joined = words.joined(separator: String(nameSeparator))
+        return String(String.UnicodeScalarView(joined.unicodeScalars.prefix(displayNameMaxScalars)))
     }
 }

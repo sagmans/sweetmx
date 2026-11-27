@@ -15,6 +15,10 @@ final class UninstallTargetResolverTests: XCTestCase {
         static let nameKey = "CFBundleName"
         static let infoSuffix = "/Contents/Info.plist"
         static let oversizeBytes = 1_048_577
+        /// The cap on a shown name, in Unicode scalars.
+        static let nameScalarCap = 120
+        /// Far more combining marks than the cap, all on one visible letter.
+        static let stackedMarks = 500
     }
 
     private var fileSystem: MockFileSystem!
@@ -211,7 +215,12 @@ final class UninstallTargetResolverTests: XCTestCase {
         XCTAssertEqual(try resolve().get().displayName, "EvilApp Name X")
 
         try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: String(repeating: "a", count: 500)])
-        XCTAssertEqual(try resolve().get().displayName.count, 120)
+        XCTAssertEqual(try resolve().get().displayName.count, Fixture.nameScalarCap)
+
+        // One letter under a pile of combining marks is one character, so only a scalar count caps it.
+        let stacked = "e" + String(repeating: "\u{0301}", count: Fixture.stackedMarks)
+        try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: stacked])
+        XCTAssertEqual(try resolve().get().displayName.unicodeScalars.count, Fixture.nameScalarCap)
 
         try install(info: [Fixture.plistKey: Fixture.thirdPartyID, Fixture.displayKey: "\u{202E}\n"])
         XCTAssertEqual(try resolve().get().displayName, "Sample")
