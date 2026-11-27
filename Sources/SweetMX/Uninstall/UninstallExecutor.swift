@@ -22,8 +22,6 @@ nonisolated struct UninstallItemResult: Equatable, Sendable {
         case appStillRunning, targetChanged, becameSymlink, missing,
              permissionDenied, finderCancelled, finderConsentRefused,
              finderTimedOut, protectedByMacOS, appDidNotMove, other(domain: String, code: Int)
-        /// The caller cancelled while the app was quitting; nothing moved, so the person can try again.
-        case cancelled
     }
 
     let url: URL
@@ -91,8 +89,6 @@ final class UninstallExecutor {
             break
         case .stillRunning:
             return refuseAll(request, reason: .appStillRunning)
-        case .cancelled:
-            return refuseAll(request, reason: .cancelled)
         }
         guard await targetStillMatches(request.target) else {
             return refuseAll(request, reason: .targetChanged)
@@ -114,11 +110,12 @@ final class UninstallExecutor {
 
     // MARK: - Steps
 
-    private enum QuitResult { case quit, stillRunning, cancelled }
+    private enum QuitResult { case quit, stillRunning }
 
     /// Asks the app to quit and waits a bounded time. Only the timeout decides, because an app that
     /// answers "no" may still be closing a document. It never forces a quit: unsaved work is not ours
-    /// to discard. A cancelled caller stops the wait and nothing moves.
+    /// to discard. The sheet never cancels a move, so a cancelled wait can only come from outside; it
+    /// counts as an app that did not quit, and nothing moves.
     private func quitApp(at bundleURL: URL) async -> QuitResult {
         let running = workspace.runningApplications(atBundleURL: bundleURL).filter { !$0.isTerminated }
         guard !running.isEmpty else { return .quit }
@@ -132,7 +129,7 @@ final class UninstallExecutor {
             do {
                 try await Task.sleep(for: quitPollInterval)
             } catch {
-                return .cancelled
+                return .stillRunning
             }
         }
         return .quit

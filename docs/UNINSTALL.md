@@ -277,7 +277,6 @@ Each row has a mark and one sentence:
 | "The app did not quit. Quit it and try again." | The app was still open after the wait. |
 | "macOS protects this item." | The item is protected. |
 | "macOS could not move this item." | The system gave another error. |
-| "The move stopped before anything moved." | The move was cancelled while the app quit. |
 
 A row that did not move has a **Show in Finder** button, unless the item is
 gone. Click **Done** or press `Return` to close the view.

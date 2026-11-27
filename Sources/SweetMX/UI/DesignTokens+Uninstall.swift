@@ -179,7 +179,6 @@ extension DesignTokens.Copy {
         case .protectedByMacOS: "macOS protects this item."
         case .appDidNotMove: "Kept because the app did not move."
         case .other: "macOS could not move this item."
-        case .cancelled: "The move stopped before anything moved."
         }
     }
 

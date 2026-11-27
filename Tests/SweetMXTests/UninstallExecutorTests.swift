@@ -173,7 +173,8 @@ final class UninstallExecutorTests: XCTestCase {
         task.cancel()
         let results = await task.value
 
-        XCTAssertEqual(reasons(results), [.cancelled, .cancelled])
+        // A wait that ends early is an app that did not quit; there is no separate cancel outcome.
+        XCTAssertEqual(reasons(results), [.appStillRunning, .appStillRunning])
         XCTAssertTrue(fileSystem.trashItemCalls.isEmpty)
     }
 
