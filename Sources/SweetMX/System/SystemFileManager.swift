@@ -121,6 +121,12 @@ public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked
     }
 
     public func allocatedSize(at url: URL, limit: Int) -> Int64? {
+        // The enumerator yields nothing for a single file (a settings file is one), which used to make
+        // the size unknown. A file or a link is its own whole size, and a link is never followed.
+        guard let kind = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) else { return nil }
+        if kind.isSymbolicLink == true || kind.isDirectory != true {
+            return allocatedBytes(of: url)
+        }
         var failed = false
         // The enumerator does not follow links, so a link inside the app counts as itself only.
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: sizeKeys, options: [], errorHandler: { _, _ in

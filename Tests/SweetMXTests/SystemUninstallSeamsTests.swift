@@ -23,6 +23,8 @@ final class SystemUninstallSeamsTests: XCTestCase {
         static let writableMode: Int16 = 0o755
         static let leafCount = 5
         static let leafBytes = 8192
+        /// Far above the allocation of any link, so a followed link would show.
+        static let largeFileBytes = 1_048_576
         static let underLimit = 100
         static let belowEntryCount = 3
         static let unmappedCode = -50
@@ -141,6 +143,35 @@ final class SystemUninstallSeamsTests: XCTestCase {
         XCTAssertEqual(SystemFinderTrash.outcome(forCode: -128), .cancelled)
         XCTAssertEqual(SystemFinderTrash.outcome(forCode: -1712), .timedOut)
         XCTAssertEqual(SystemFinderTrash.outcome(forCode: Fixture.unmappedCode), .failed(code: Fixture.unmappedCode))
+    }
+
+    func testAllocatedSizeOfARegularFileIsItsOwnSize() throws {
+        let file = root.appendingPathComponent(Names.file)
+        try Data(count: Fixture.leafBytes).write(to: file)
+
+        let size = try XCTUnwrap(fileSystem.allocatedSize(at: file, limit: Fixture.underLimit))
+
+        XCTAssertGreaterThanOrEqual(size, Int64(Fixture.leafBytes))
+    }
+
+    func testAllocatedSizeOfAFolderCountsItsContents() throws {
+        let tree = try makeTree(leaves: Fixture.leafCount)
+
+        let size = try XCTUnwrap(fileSystem.allocatedSize(at: tree, limit: Fixture.underLimit))
+
+        XCTAssertGreaterThanOrEqual(size, Int64(Fixture.leafCount * Fixture.leafBytes))
+    }
+
+    func testAllocatedSizeOfALinkIsNotTheSizeOfItsTarget() throws {
+        let target = root.appendingPathComponent(Names.target)
+        try Data(count: Fixture.largeFileBytes).write(to: target)
+        let link = root.appendingPathComponent(Names.link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let targetSize = try XCTUnwrap(fileSystem.allocatedSize(at: target, limit: Fixture.underLimit))
+        let linkSize = try XCTUnwrap(fileSystem.allocatedSize(at: link, limit: Fixture.underLimit))
+
+        XCTAssertLessThan(linkSize, targetSize, "The link must count as itself; the file behind it is not followed")
     }
 
     func testAllocatedSizeIsNilWhenMissing() {
