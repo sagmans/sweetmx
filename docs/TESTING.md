@@ -58,6 +58,9 @@ SweetMX/
 ├── Sources/wm-sim/          # Development tool: runs the model, no window needed
 ├── Sources/wmctl/           # Development tool: control client (no commands yet)
 │
+├── Tests/WMScenarios/       # Window manager scenario files and expected output
+│   └── invalid/             # Files that wm-sim must refuse, and the error for each
+│
 ├── Tests/SweetMXTests/
 │   ├── Mocks/               # Mock implementations for testing
 │   │   ├── MockFileSystem.swift
@@ -201,10 +204,118 @@ make wm-scenarios
 | `wm-sim` with no argument                 | It prints the usage text and exits 64.        |
 | `wm-sim` with an unknown flag             | It prints the usage text and exits 64.        |
 | `wm-sim --version` with an extra argument | It prints the usage text and exits 64.        |
+| `wm-sim` with a file that does not exist  | It says it cannot read the file and exits 66. |
+| `wm-sim --fuzz 0`, or a seed of `x`       | It prints the usage text and exits 64.        |
+| Each file in `Tests/WMScenarios/`         | The output equals its `.expected` file.       |
+| Each file in `Tests/WMScenarios/invalid/` | It prints the one expected error, exits 65.   |
+| `wm-sim --fuzz 100000`                    | Every rule holds after each random input.     |
 | `wmctl query`                             | It says it has no commands yet and exits 69.  |
 
 The model version is `WMVersion.current` in `Sources/WMCore`. It is apart from
 the app version in `Resources/Info.plist`.
+
+#### Scenario files
+
+The window manager model is one value. `reduce` takes the state and one input,
+and returns the next state and the effects for real windows. A scenario file is
+a list of inputs. `wm-sim <file>` runs them with no real window and prints the
+screen after each line. The run fails when the output is not equal to the
+`.expected` file beside the scenario.
+
+| Scenario file          | Passes when                                                       |
+| ---------------------- | ----------------------------------------------------------------- |
+| `three-way-split.scn`  | Three windows tile the screen exactly.                            |
+| `zoom-in.scn`          | The zoomed window gets the full screen. The others are hidden.    |
+| `zoom-create.scn`      | The slot of the zoomed window holds three windows after zoom out. |
+| `deep-zoom.scn`        | After 50 zoom levels and back, the first layout returns.          |
+| `grid-walk.scn`        | After 1000 grid moves and a jump back, one workspace exists.      |
+| `destroy-zoomed.scn`   | The view moves to the parent. The focus lands on a sibling.       |
+| `zoom-out-at-root.scn` | Nothing changes and no effect is made.                            |
+| `tree-edits.scn`       | Split, move, resize and focus change the tree as the file says.   |
+| `workspaces.scn`       | A sent window is hidden. The view follows the system focus.       |
+| `gaps.scn`             | Windows keep the gaps from the screen edge and from each other.   |
+
+The first seven are the proof that the window manager plan asks for. The run
+fails when one of them is missing.
+
+One line is one input. A line that starts with `#` is a comment.
+
+| Line                                 | Input                                                        |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `create`                             | A window opens. Windows get the numbers 1, 2, 3 in order.    |
+| `destroy <window>`                   | A window closes.                                             |
+| `focused <window>`                   | The system gave the focus to a window.                       |
+| `screen <x> <y> <width> <height>`    | The display changed. The start is `0 0 1920 1080`.           |
+| `focus <direction>`                  | Focus the window in that direction.                          |
+| `move <direction>`                   | Move the focused window one step.                            |
+| `split horizontal` or `vertical`     | The next window opens beside the focused one on that axis.   |
+| `resize <direction> <amount>`        | Grow the focused window by that part of its split.           |
+| `zoom in` or `zoom out`              | Go one level into the tree, or one level out.                |
+| `grid <direction>`                   | Go to the next workspace on the grid.                        |
+| `goto <x> <y>`                       | Go to the workspace at that cell.                            |
+| `send <x> <y>`                       | Send the focused window to the workspace at that cell.       |
+| `repeat <count> <input> ; <input>`   | Run the inputs that many times, then print one result.       |
+| `gaps <inner> <outer>`               | Set the gaps. Only as the first line that does something.    |
+
+A direction is `left`, `right`, `up` or `down`. Each result block has these
+lines:
+
+```text
+> zoom in
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @2* 3)
+frame 2 0 0 1920 1080
+hidden 1 3
+effects 3
+  hide 1
+  hide 3
+  frame 2 0 0 1920 1080
+```
+
+- `grid` shows the current cell, the number of workspaces, and the zoom depth.
+- `tree` shows the splits as `h(...)` and `v(...)`. `@` marks the node that
+  fills the screen. `*` marks the focused window.
+- `frame` shows a visible window as `x y width height`, in whole points.
+- `effects` lists what the platform layer must do. A `repeat` line shows the
+  count only.
+
+To add a scenario, write the `.scn` file and record its output:
+
+```bash
+cd Tests/WMScenarios
+swift run wm-sim my-case.scn > my-case.expected
+```
+
+Read the expected file line by line before you commit it. The file is the
+proof, so a wrong line in it makes a wrong layout pass.
+
+The model sets no smallest window size. A window deep in a tree can get a frame
+with no area, as in `deep-zoom.expected`. The platform layer will handle the
+size that a real window accepts.
+
+#### Property run
+
+`wm-sim --fuzz <steps>` applies random inputs and checks the rules in
+`Sources/WMCore/StateCheck.swift` after each one:
+
+- Every window is in the tree once.
+- `viewRoot` and `focus` name existing nodes, and the focus is inside the view.
+- Each split has a child, and one valid weight for each child.
+- The current cell exists, and no other workspace is empty.
+- Visible frames never overlap.
+- Visible frames stay on the screen. With no gaps, they cover all of it.
+
+It also applies the effects of each step to a copy of the screen. The copy must
+equal what the state shows, so no input can forget to move or hide a window.
+Before the run, it gives the check one broken state for each rule. The run
+fails if the check misses one.
+
+The seed is fixed, so each run uses the same inputs. A failure prints the seed
+and the step. To try other inputs:
+
+```bash
+swift run wm-sim --fuzz 100000 --seed 7
+```
 
 `wm-sim` and `wmctl` are never in `SweetMX.app`. `make bundle` fails when the
 bundle holds any program but the app executable, in any folder.

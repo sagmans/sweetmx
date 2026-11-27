@@ -39,6 +39,7 @@ Fixture apps are written to a temporary folder and removed after the run.
 | `idle_clipboard_polls_per_s` | 1/s  | Clipboard checks per second with the panel hidden                   |
 | `idle_cpu_ms_per_s`          | ms/s | Process CPU per second while idle                                   |
 | `app_binary_kib`             | KiB  | Size of the release executable                                      |
+| `wm_reduce_layout_ms`        | ms   | One window manager step with 100 windows: `reduce`, then `layout`   |
 
 Each time metric is the median of 15 runs after 3 warm-up runs (7 and 1 for
 the slow scan and startup). The median ignores a run that the system paused.
@@ -58,6 +59,10 @@ metric. The limit leaves room for normal noise:
 The full app-index scan has a fixed 200 ms budget. Recording it updates the
 measured baseline and keeps that limit. The retained-index probe waits for the
 scan's queued cache writes to finish before sampling the heap.
+
+The window manager step has a fixed 1 ms budget in the same way. Its value is
+the slowest of ten inputs, so one slow kind of input cannot hide behind the
+others. No real window is involved.
 
 The baseline file also records the Mac it was made on. Time limits hold only
 on similar hardware. If the gate fails on another Mac, compare the hosts first.

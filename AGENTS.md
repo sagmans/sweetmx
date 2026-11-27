@@ -26,6 +26,14 @@ the tools as a user does and compares their output and exit status. `make test`
 runs it after the Swift suite, so `pre-push` runs it on each pushed tip;
 `make wm-scenarios` runs it alone.
 
+The model is one value, `WMState`. `reduce(state, input)` is the only way to
+change it, and it returns the effects for real windows. Prove a change to the
+model with a scenario file in `Tests/WMScenarios/` (inputs in `<name>.scn`, the
+screen after each line in `<name>.expected`), not with a unit test. Read an
+expected file line by line before you commit it. `wm-sim --fuzz` applies random
+inputs and checks the rules in `Sources/WMCore/StateCheck.swift` after each
+one; add a rule there when the model gains a promise. See `docs/TESTING.md`.
+
 ## Git hooks
 
 After cloning, run `scripts/setup-hooks` once. It sets
