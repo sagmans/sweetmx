@@ -1,0 +1,15 @@
+# A split asked for while one window fills the view. Passes when the next
+# window opens beside the zoomed one on the axis that was asked for, and a
+# second request changes the axis and adds no level.
+create
+create
+split vertical
+zoom in
+zoom in
+# Window 2 is alone in a column that is outside the view.
+split horizontal
+create
+# Window 3 is now alone in its own split, inside the view.
+split vertical
+split horizontal
+create

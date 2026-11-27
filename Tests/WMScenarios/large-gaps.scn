@@ -1,0 +1,7 @@
+# An inner gap larger than the screen, with no outer gap. Passes when every
+# frame stays inside the screen: a window too small for the gap has no area.
+gaps 2000 0
+create
+create
+split vertical
+create

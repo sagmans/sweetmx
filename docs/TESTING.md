@@ -234,6 +234,8 @@ screen after each line. The run fails when the output is not equal to the
 | `tree-edits.scn`       | Split, move, resize and focus change the tree as the file says.   |
 | `workspaces.scn`       | A sent window is hidden. The view follows the system focus.       |
 | `gaps.scn`             | Windows keep the gaps from the screen edge and from each other.   |
+| `large-gaps.scn`       | A gap larger than a window leaves it on the screen with no area.  |
+| `zoom-split.scn`       | A split asked for on a zoomed window sets where the next opens.   |
 
 The first seven are the proof that the window manager plan asks for. The run
 fails when one of them is missing.
@@ -247,7 +249,7 @@ One line is one input. A line that starts with `#` is a comment.
 | `focused <window>`                   | The system gave the focus to a window.                       |
 | `screen <x> <y> <width> <height>`    | The display changed. The start is `0 0 1920 1080`.           |
 | `focus <direction>`                  | Focus the window in that direction.                          |
-| `move <direction>`                   | Move the focused window one step.                            |
+| `move <direction>`                   | Move the focused window one step. It keeps its size.         |
 | `split horizontal` or `vertical`     | The next window opens beside the focused one on that axis.   |
 | `resize <direction> <amount>`        | Grow the focused window by that part of its split.           |
 | `zoom in` or `zoom out`              | Go one level into the tree, or one level out.                |
@@ -300,7 +302,7 @@ size that a real window accepts.
 
 - Every window is in the tree once.
 - `viewRoot` and `focus` name existing nodes, and the focus is inside the view.
-- Each split has a child, and one valid weight for each child.
+- Each split has a child, and each child has a valid weight.
 - The current cell exists, and no other workspace is empty.
 - Visible frames never overlap.
 - Visible frames stay on the screen. With no gaps, they cover all of it.
@@ -310,8 +312,13 @@ equal what the state shows, so no input can forget to move or hide a window.
 Before the run, it gives the check one broken state for each rule. The run
 fails if the check misses one.
 
-The seed is fixed, so each run uses the same inputs. A failure prints the seed
-and the step. To try other inputs:
+The run has five parts of equal length. Each part starts from an empty state
+with its own gaps: none, a usual size, an inner gap with no outer gap, a gap
+larger than the screen, and a very large number.
+
+The seed is fixed, so each run uses the same inputs. A failure prints the
+seed, the step and the step count. Use the same three to see it again. To
+try other inputs:
 
 ```bash
 swift run wm-sim --fuzz 100000 --seed 7

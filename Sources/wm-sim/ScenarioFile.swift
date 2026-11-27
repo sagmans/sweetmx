@@ -60,7 +60,8 @@ struct Simulation {
         var report = ["> \(line.text)"]
         switch line.action {
         case let .gaps(gaps):
-            state = WMState(grid: state.grid, screen: state.screen, gaps: gaps, nodeIDs: state.nodeIDs)
+            // The parser accepts gaps only before any other line, so this is still the start.
+            state = WMState(screen: state.screen, gaps: gaps)
             report += StateText.lines(state) + ["effects 0"]
         case let .steps(steps):
             let effects = apply(steps)
@@ -106,7 +107,7 @@ enum StateText {
         let presentation = Presentation(of: state)
         let hidden = presentation.hidden.map { String($0.rawValue) }
         return [
-            "grid \(state.grid.current.x),\(state.grid.current.y) workspaces \(state.grid.cells.count) zoom \(zoomDepth(workspace))",
+            "grid \(state.grid.current.x),\(state.grid.current.y) workspaces \(state.grid.cells.count) zoom \(workspace.zoomDepth)",
             "tree \(workspace.root.map { tree($0, in: workspace) } ?? nothing)",
         ] + presentation.frames.map { "frame \($0.window.rawValue) \(rect($0.frame))" }
             + ["hidden \(hidden.isEmpty ? nothing : hidden.joined(separator: " "))"]
@@ -128,28 +129,9 @@ enum StateText {
         case let .window(window):
             return "\(view)\(window.rawValue)\(node.id == workspace.focus ? focusMark : "")"
         case let .split(split):
-            let children = split.children.map { tree($0, in: workspace) }.joined(separator: " ")
+            let children = split.children.map { tree($0.node, in: workspace) }.joined(separator: " ")
             return "\(view)\(split.axis == .horizontal ? "h" : "v")(\(children))"
         }
-    }
-
-    /// How many times the user has zoomed in: the number of levels between the root and the view.
-    private static func zoomDepth(_ workspace: Workspace) -> Int {
-        func depth(of node: Node, at level: Int) -> Int? {
-            if node.id == workspace.viewRoot {
-                return level
-            }
-            guard case let .split(split) = node.content else { return nil }
-            // A plain loop on purpose: `lazy.compactMap { }.first` runs its closure twice for the
-            // match, which doubles the work at every level of a deep tree.
-            for child in split.children {
-                if let found = depth(of: child, at: level + 1) {
-                    return found
-                }
-            }
-            return nil
-        }
-        return workspace.root.flatMap { depth(of: $0, at: 0) } ?? 0
     }
 
     private static func rect(_ rect: Rect) -> String {

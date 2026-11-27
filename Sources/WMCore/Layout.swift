@@ -25,18 +25,22 @@ public func layout(_ workspace: Workspace, screenRect: Rect, gaps: Gaps) -> [Win
     // Each window is inset by half the inner gap, so two neighbors are one inner gap apart. The
     // screen is inset by the rest, so a window at the edge is one outer gap from it.
     let halfInner = gaps.inner / 2
+    let screen = Box(screenRect)
     var frames: [WindowFrame] = []
-    place(view, in: Box(screenRect).inset(by: gaps.outer - halfInner), halfInner: halfInner, into: &frames)
+    place(view, in: screen.inset(by: gaps.outer - halfInner), gaps: (halfInner, screen), into: &frames)
     return frames
 }
 
-private func place(_ node: Node, in box: Box, halfInner: Double, into frames: inout [WindowFrame]) {
+/// `gaps.screen` is the limit for every frame. An inner gap larger than twice the outer gap makes
+/// the first box larger than the screen, and a part smaller than the gap closes at its middle,
+/// which can then lie outside the screen. Such a window gets an empty frame at the screen edge.
+private func place(_ node: Node, in box: Box, gaps: (halfInner: Double, screen: Box), into frames: inout [WindowFrame]) {
     switch node.content {
     case let .window(window):
-        frames.append(WindowFrame(window: window, frame: box.inset(by: halfInner).snapped))
+        frames.append(WindowFrame(window: window, frame: box.inset(by: gaps.halfInner).clamped(to: gaps.screen).snapped))
     case let .split(split):
-        for (child, part) in zip(split.children, box.divided(along: split.axis, weights: split.weights)) {
-            place(child, in: part, halfInner: halfInner, into: &frames)
+        for (child, part) in zip(split.children, box.divided(along: split.axis, weights: split.children.map(\.weight))) {
+            place(child.node, in: part, gaps: gaps, into: &frames)
         }
     }
 }
@@ -74,6 +78,17 @@ private struct Box {
             return (middle, middle)
         }
         return (low, high)
+    }
+
+    /// The part of this box inside `limit`. Each edge moves by itself and keeps its order, so two
+    /// boxes that did not overlap before do not overlap after.
+    func clamped(to limit: Box) -> Box {
+        var box = self
+        box.minX = min(max(minX, limit.minX), limit.maxX)
+        box.maxX = min(max(maxX, limit.minX), limit.maxX)
+        box.minY = min(max(minY, limit.minY), limit.maxY)
+        box.maxY = min(max(maxY, limit.minY), limit.maxY)
+        return box
     }
 
     /// One box per weight along `axis`. The first starts at this box's first edge and the last

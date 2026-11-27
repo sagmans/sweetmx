@@ -34,15 +34,11 @@ extension Workspace {
             let axis = focusPath.isEmpty ? Axis.horizontal : parentAxis?.crossed ?? .horizontal
             let wrapper = ids.make()
             tree.update(at: focusPath) { node in
-                node = Node(id: wrapper, content: .split(Split(axis: axis, children: [node, leaf], weights: [Split.unitWeight, Split.unitWeight])))
+                node = Node(id: wrapper, content: .split(Split(axis: axis, nodes: [node, leaf])))
             }
             viewRoot = wrapper
         } else if let index = focusPath.popLast() {
-            tree.update(at: focusPath) { parent in
-                guard var split = parent.split else { return }
-                split.insert(leaf, at: index + 1)
-                parent.content = .split(split)
-            }
+            tree.updateSplit(at: focusPath) { $0.insert(leaf, at: index + 1) }
         }
         root = tree
         focus = leaf.id
@@ -97,29 +93,26 @@ extension Workspace {
     mutating func resizeFocused(_ direction: Direction, by amount: Double) {
         // The amount will come from the config file; a value that is not a number changes nothing.
         guard amount.isFinite, var tree = root, let found = splitWithNeighbor(direction) else { return }
-        tree.update(at: found.path) { node in
-            guard var split = node.split else { return }
-            split.grow(found.branch, by: amount, takingFrom: found.neighbor)
-            node.content = .split(split)
-        }
+        tree.updateSplit(at: found.path) { $0.grow(found.branch, by: amount, takingFrom: found.neighbor) }
         root = tree
     }
 
     /// Puts the focused window in a split of its own, so the next window opens beside it on
     /// `axis`. A window that is already alone in its split only changes that split's axis, so
     /// repeated use cannot build a chain of empty levels.
+    ///
+    /// A zoomed window is the exception: its parent is outside the view, and the next window opens
+    /// inside the view. It gets a split of its own, so the axis the user chose is the one used.
     mutating func splitFocused(_ axis: Axis, ids: inout NodeIDSource) {
         guard let (root, focusPath, _) = anchors else { return }
         var tree = root
         let parentPath = focusPath.dropLast()
-        if !focusPath.isEmpty, let parent = tree.node(at: parentPath)?.split, parent.children.count == 1 {
-            tree.update(at: parentPath) { node in
-                node.content = .split(Split(axis: axis, children: parent.children, weights: parent.weights))
-            }
+        if viewRoot != focus, tree.node(at: parentPath)?.split?.children.count == 1 {
+            tree.updateSplit(at: parentPath) { $0.axis = axis }
         } else {
             let wrapper = ids.make()
             tree.update(at: focusPath) { node in
-                node = Node(id: wrapper, content: .split(Split(axis: axis, children: [node], weights: [Split.unitWeight])))
+                node = Node(id: wrapper, content: .split(Split(axis: axis, nodes: [node])))
             }
             // A zoomed window stays zoomed: the view follows the new split that holds only it.
             if viewRoot == focus {
@@ -143,7 +136,8 @@ extension Workspace {
 
     /// Moves the focused window one step. It swaps with a window beside it, enters a split beside
     /// it, or leaves its own split to stand beside it. It never leaves the zoomed view, because a
-    /// window outside the view is hidden and the user would lose it.
+    /// window outside the view is hidden and the user would lose it. In a swap each window keeps
+    /// its size: a window the user made larger stays larger at its new place.
     mutating func moveFocused(_ direction: Direction, ids: inout NodeIDSource) {
         guard let (root, focusPath, viewPath) = anchors, focusPath.count > viewPath.count,
               let leaf = root.node(at: focusPath), let index = focusPath.last
@@ -154,12 +148,8 @@ extension Workspace {
         let neighbor = index + direction.step
         let besideNeighbor = parent.axis == direction.axis && parent.children.indices.contains(neighbor)
 
-        if besideNeighbor, parent.children[neighbor].split == nil {
-            tree.update(at: parentPath) { node in
-                guard var split = node.split else { return }
-                split.children.swapAt(index, neighbor)
-                node.content = .split(split)
-            }
+        if besideNeighbor, parent.children[neighbor].node.split == nil {
+            tree.updateSplit(at: parentPath) { $0.children.swapAt(index, neighbor) }
             self.root = tree
             return
         }
@@ -167,14 +157,10 @@ extension Workspace {
         // repairs the tree around the hole in one way for every kind of move.
         var stalePath = focusPath
         if besideNeighbor {
-            tree.update(at: parentPath + [neighbor]) { $0.adopt(leaf, movingIn: direction) }
+            tree.updateSplit(at: parentPath + [neighbor]) { $0.adopt(leaf, movingIn: direction) }
         } else if let level = Workspace.splitToLeaveInto(tree, focusPath: focusPath, viewDepth: viewPath.count, direction) {
             let towardEnd = direction.step > 0
-            tree.update(at: focusPath.prefix(level)) { node in
-                guard var split = node.split else { return }
-                split.insert(leaf, at: focusPath[level] + (towardEnd ? 1 : 0))
-                node.content = .split(split)
-            }
+            tree.updateSplit(at: focusPath.prefix(level)) { $0.insert(leaf, at: focusPath[level] + (towardEnd ? 1 : 0)) }
             stalePath[level] += towardEnd ? 0 : 1
         } else if parentPath == viewPath, parent.axis == direction.axis {
             // Already at the edge of the view, along its axis: there is nowhere further to go.
@@ -183,8 +169,7 @@ extension Workspace {
             let towardEnd = direction.step > 0
             let wrapper = ids.make()
             tree.update(at: viewPath) { node in
-                let children = towardEnd ? [node, leaf] : [leaf, node]
-                node = Node(id: wrapper, content: .split(Split(axis: direction.axis, children: children, weights: [Split.unitWeight, Split.unitWeight])))
+                node = Node(id: wrapper, content: .split(Split(axis: direction.axis, nodes: towardEnd ? [node, leaf] : [leaf, node])))
             }
             viewRoot = wrapper
             stalePath.insert(towardEnd ? 0 : 1, at: viewPath.count)
@@ -204,13 +189,11 @@ extension Workspace {
     }
 }
 
-private extension Node {
+private extension Split {
     /// Takes a window that moves into this split from a sibling place. It enters at the near edge
     /// when the split lies along the move, and at the end when it does not.
     mutating func adopt(_ leaf: Node, movingIn direction: Direction) {
-        guard var split else { return }
-        let atNearEdge = split.axis == direction.axis && direction.step > 0
-        split.insert(leaf, at: atNearEdge ? 0 : split.children.count)
-        content = .split(split)
+        let atNearEdge = axis == direction.axis && direction.step > 0
+        insert(leaf, at: atNearEdge ? 0 : children.count)
     }
 }

@@ -8,7 +8,7 @@ public enum StateRule: String, CaseIterable, Sendable {
     case windowOnce = "window-once"
     /// `viewRoot` and `focus` name existing nodes, and the focus is a window inside the view.
     case references
-    /// Every split has a child, and one positive, finite weight for each child.
+    /// Every split has a child, and each child has a positive, finite weight.
     case splitShape = "split-shape"
     /// The current cell exists, and no other workspace is empty.
     case gridCells = "grid-cells"
@@ -58,7 +58,9 @@ public extension WMState {
         }
         return found
     }
+}
 
+extension WMState {
     /// The rules about frames, on their own so they can be checked against any list of frames:
     /// the layout can only break them through a fault, and a checker that was never shown a broken
     /// list could not be trusted to notice one.
@@ -105,7 +107,7 @@ private extension Workspace {
 private extension Node {
     func visit(_ body: (Node) -> Void) {
         body(self)
-        split?.children.forEach { $0.visit(body) }
+        split?.children.forEach { $0.node.visit(body) }
     }
 
     func brokenSplits() -> [String] {
@@ -115,10 +117,54 @@ private extension Node {
             if split.children.isEmpty {
                 broken.append("split \(node.id.rawValue) has no child")
             }
-            if split.weights.count != split.children.count || !split.weights.allSatisfy({ $0.isFinite && $0 > 0 }) {
+            if !split.children.allSatisfy({ $0.weight.isFinite && $0.weight > 0 }) {
                 broken.append("split \(node.id.rawValue) has bad weights")
             }
         }
         return broken
     }
+}
+
+public extension StateRule {
+    /// The rules that the check fails to report on a state made to break them, plus any rule with
+    /// no broken example. A caller runs this before it trusts a clean check: a checker that cannot
+    /// see a broken state would pass every run. It lives here, beside the rules, because only this
+    /// module can build a state that breaks one.
+    static func undetected() -> [StateRule] {
+        let missed = BrokenExample.all.filter { example in !example.violations.contains { $0.rule == example.rule } }.map(\.rule)
+        let untested = allCases.filter { rule in !BrokenExample.all.contains { $0.rule == rule } }
+        return missed + untested
+    }
+}
+
+/// States and frames that break one rule each, made by hand.
+private enum BrokenExample {
+    private static let screen = Rect(x: 0, y: 0, width: 100, height: 100)
+    private static let half = Rect(x: 0, y: 0, width: 50, height: 100)
+
+    private static func leaf(_ window: UInt32, node: UInt64) -> Node {
+        Node(id: NodeID(node), content: .window(WindowID(window)))
+    }
+
+    private static func state(_ workspace: Workspace, extra: [Coord: Workspace] = [:]) -> WMState {
+        var state = WMState(screen: screen)
+        state.grid = Grid(cells: extra.merging([.origin: workspace]) { _, current in current })
+        return state
+    }
+
+    private static func row(_ nodes: [Node], firstWeight: Double = Split.unitWeight) -> Workspace {
+        var split = Split(axis: .horizontal, nodes: nodes)
+        split.children[0].weight = firstWeight
+        return Workspace(root: Node(id: NodeID(0), content: .split(split)), viewRoot: NodeID(0), focus: nodes.first?.id)
+    }
+
+    static let all: [(rule: StateRule, violations: [Violation])] = [
+        (.windowOnce, state(row([leaf(1, node: 1), leaf(1, node: 2)])).violations()),
+        (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(1), focus: NodeID(9))).violations()),
+        (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(9), focus: NodeID(1))).violations()),
+        (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], firstWeight: 0)).violations()),
+        (.gridCells, state(Workspace(), extra: [Coord(x: 1, y: 0): Workspace()]).violations()),
+        (.overlap, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: screen), WindowFrame(window: WindowID(2), frame: half)], screen: screen, gaps: .none)),
+        (.coverage, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: half)], screen: screen, gaps: .none)),
+    ]
 }

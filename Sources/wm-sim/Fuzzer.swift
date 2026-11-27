@@ -6,8 +6,9 @@ import WMCore
 // nobody thought of. It is seeded, so a failure gives a seed and a step that replay it exactly.
 
 /// SplitMix64: a small generator with a fixed, public algorithm, so one seed gives the same inputs
-/// on every machine and toolchain. The system generator cannot be seeded.
-struct SeededGenerator: RandomNumberGenerator {
+/// on every machine and toolchain. The system generator cannot be seeded, and the standard
+/// library may change how it turns random bits into a choice, so the choice is made here too.
+struct SeededGenerator {
     private var state: UInt64
 
     init(seed: UInt64) {
@@ -20,6 +21,12 @@ struct SeededGenerator: RandomNumberGenerator {
         mixed = (mixed ^ (mixed >> 30)) &* 0xBF58_476D_1CE4_E5B9
         mixed = (mixed ^ (mixed >> 27)) &* 0x94D0_49BB_1331_11EB
         return mixed ^ (mixed >> 31)
+    }
+
+    /// A number from 0 up to, not including, `count`. The small bias of the remainder does not
+    /// matter for picking test inputs.
+    mutating func index(below count: Int) -> Int {
+        Int(next() % UInt64(max(count, 1)))
     }
 }
 
@@ -82,7 +89,8 @@ struct Fuzzer {
     private static let strangerOdds = 10
     /// One coordinate in this many is at the end of `Int`, where a grid move must not overflow.
     private static let farCellOdds = 50
-    private static let nearCells = -1 ... 1
+    private static let nearCells = [-1, 0, 1]
+    private static let farCells = [Int.max, Int.min]
     /// Offset that makes a window number the run never opens.
     private static let strangerOffset: UInt32 = 1_000_000
 
@@ -97,6 +105,17 @@ struct Fuzzer {
         Rect(x: 0, y: 0, width: -100, height: 100),
         Rect(x: .nan, y: 0, width: 100, height: 100),
         Rect(x: 0, y: 0, width: .infinity, height: 100),
+    ]
+    /// A run is cut into one part for each of these, in order, and each part starts from an empty
+    /// state. No gaps comes first: only there do the frames have to cover the whole screen. The
+    /// rest are a usual config, an inner gap with no outer gap (the first box is then larger than
+    /// the screen), a gap larger than the screen, and a number at the end of the range.
+    private static let gapSettings = [
+        Gaps.none,
+        Gaps(inner: 10, outer: 10),
+        Gaps(inner: 40, outer: 0),
+        Gaps(inner: 5000, outer: 0),
+        Gaps(inner: 1e300, outer: 5),
     ]
     private static let resizeAmounts: [Double] = [0.05, -0.05, 0.3, -0.3, 5, -5, 0, 1e308, .nan, .infinity, -.infinity]
 
@@ -136,19 +155,35 @@ struct Fuzzer {
 
     static func run(steps: Int, seed: UInt64) throws(SimulatorFailure) -> String {
         // A checker that cannot see a broken state would pass every run, so it is tested first.
-        let blind = Canary.undetected()
+        let blind = StateRule.undetected()
         guard blind.isEmpty else {
-            throw SimulatorFailure(message: "the state check does not see: \(blind.joined(separator: ", "))", status: EX_SOFTWARE)
+            throw SimulatorFailure(message: "the state check does not see: \(blind.map(\.rawValue).joined(separator: ", "))", status: EX_SOFTWARE)
         }
         var fuzzer = Fuzzer(random: SeededGenerator(seed: seed))
+        var part = -1
         for step in 1 ... steps {
+            let wanted = (step - 1) * gapSettings.count / steps
+            if wanted != part {
+                part = wanted
+                fuzzer.restart(gaps: gapSettings[part])
+            }
             let input = fuzzer.nextInput()
             if let problem = fuzzer.apply(input) {
-                throw SimulatorFailure(message: "fuzz failed at step \(step) of seed \(seed): \(problem); input \(input)", status: EX_SOFTWARE)
+                // The step count is part of the replay: it decides where each gap setting starts.
+                let place = "step \(step) of \(steps), seed \(seed), gaps \(fuzzer.state.gaps.inner) \(fuzzer.state.gaps.outer)"
+                throw SimulatorFailure(message: "fuzz failed at \(place): \(problem); input \(input)", status: EX_SOFTWARE)
             }
         }
-        return "fuzz ok: steps=\(steps) seed=\(seed) rules=\(StateRule.allCases.count) "
+        return "fuzz ok: steps=\(steps) seed=\(seed) rules=\(StateRule.allCases.count) gap-settings=\(min(steps, gapSettings.count)) "
             + "peak-windows=\(fuzzer.peak.windows) peak-workspaces=\(fuzzer.peak.workspaces) effects=\(fuzzer.effectCount)\n"
+    }
+
+    /// Starts again from an empty state, as the app does at launch with a new config. The window
+    /// numbers go on, so a window of an earlier part is a stranger in the next.
+    private mutating func restart(gaps: Gaps) {
+        state = WMState(screen: Fuzzer.screens[0], gaps: gaps)
+        replay = ScreenReplay()
+        live = []
     }
 
     /// Applies one input and returns what went wrong, or nil.
@@ -166,7 +201,7 @@ struct Fuzzer {
     }
 
     private mutating func nextInput() -> Input {
-        let kind = Kind.deck.randomElement(using: &random) ?? .created
+        let kind = pick(Kind.deck, or: .created)
         switch kind {
         case .created where live.count < Fuzzer.windowCeiling: return .event(.created(openWindow()))
         case .created, .destroyed: return .event(.destroyed(closeWindow()))
@@ -185,7 +220,7 @@ struct Fuzzer {
     }
 
     private mutating func pick<Value>(_ values: [Value], or fallback: Value) -> Value {
-        values.randomElement(using: &random) ?? fallback
+        values.isEmpty ? fallback : values[random.index(below: values.count)]
     }
 
     private mutating func direction() -> Direction {
@@ -193,12 +228,12 @@ struct Fuzzer {
     }
 
     private mutating func oneIn(_ odds: Int) -> Bool {
-        Int.random(in: 0 ..< odds, using: &random) == 0
+        random.index(below: odds) == 0
     }
 
     private mutating func cell() -> Coord {
         func coordinate() -> Int {
-            oneIn(Fuzzer.farCellOdds) ? pick([Int.max, Int.min], or: 0) : Int.random(in: Fuzzer.nearCells, using: &random)
+            oneIn(Fuzzer.farCellOdds) ? pick(Fuzzer.farCells, or: 0) : pick(Fuzzer.nearCells, or: 0)
         }
         return Coord(x: coordinate(), y: coordinate())
     }
@@ -214,8 +249,8 @@ struct Fuzzer {
     /// A new window, or now and then one that is already open: the platform layer can report a
     /// window twice, and the model must hold it once.
     private mutating func openWindow() -> WindowID {
-        if oneIn(Fuzzer.strangerOdds), let known = live.randomElement(using: &random) {
-            return known
+        if oneIn(Fuzzer.strangerOdds), !live.isEmpty {
+            return pick(live, or: stranger)
         }
         opened += 1
         live.append(WindowID(opened))
@@ -226,41 +261,5 @@ struct Fuzzer {
         let window = someWindow()
         live.removeAll { $0 == window }
         return window
-    }
-}
-
-/// States and frames that break one rule each, made by hand. The state check must report every
-/// one of them, or a clean property run would mean nothing.
-private enum Canary {
-    private static let screen = Rect(x: 0, y: 0, width: 100, height: 100)
-    private static let half = Rect(x: 0, y: 0, width: 50, height: 100)
-
-    private static func leaf(_ window: UInt32, node: UInt64) -> Node {
-        Node(id: NodeID(node), content: .window(WindowID(window)))
-    }
-
-    private static func state(_ workspace: Workspace, extra: [Coord: Workspace] = [:]) -> WMState {
-        WMState(grid: Grid(cells: extra.merging([.origin: workspace]) { _, current in current }), screen: screen)
-    }
-
-    private static func row(_ children: [Node], weights: [Double]) -> Workspace {
-        Workspace(root: Node(id: NodeID(0), content: .split(Split(axis: .horizontal, children: children, weights: weights))), viewRoot: NodeID(0), focus: children.first?.id)
-    }
-
-    private static let broken: [(rule: StateRule, violations: [Violation])] = [
-        (.windowOnce, state(row([leaf(1, node: 1), leaf(1, node: 2)], weights: [1, 1])).violations()),
-        (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(1), focus: NodeID(9))).violations()),
-        (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(9), focus: NodeID(1))).violations()),
-        (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], weights: [1])).violations()),
-        (.gridCells, state(Workspace(), extra: [Coord(x: 1, y: 0): Workspace()]).violations()),
-        (.overlap, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: screen), WindowFrame(window: WindowID(2), frame: half)], screen: screen, gaps: .none)),
-        (.coverage, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: half)], screen: screen, gaps: .none)),
-    ]
-
-    /// The rules the check failed to report, plus any rule that has no broken example here.
-    static func undetected() -> [String] {
-        let missed = broken.filter { example in !example.violations.contains { $0.rule == example.rule } }.map(\.rule)
-        let untested = StateRule.allCases.filter { rule in !broken.contains { $0.rule == rule } }
-        return (missed + untested).map(\.rawValue)
     }
 }

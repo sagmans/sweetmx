@@ -3,7 +3,7 @@ import WMCore
 
 // The scenario file format. One line is one step: an input for the model, written the way a
 // person would say it ("zoom in", "move left"). The file is input from outside the tool, so every
-// word is checked, and the limits below keep a wrong or hostile file from running for hours.
+// word is checked, and the limits below keep a wrong or hostile file to minutes of work.
 
 /// One thing a scenario line does to the model.
 enum ScenarioStep: Equatable {
@@ -38,10 +38,11 @@ enum ScenarioParser {
         static let fileBytes = 1 << 20
         static let repeats = 100_000
         /// All steps of one file. The property run is the place for millions of inputs.
-        static let totalSteps = 1_000_000
+        static let totalSteps = 100_000
         /// The tree is walked by recursion and can be as deep as it has windows, so the window
-        /// count is what bounds the stack.
-        static let windows = 2000
+        /// count bounds the stack. It also bounds the time of one step, and so, with the step
+        /// limit, the time of a whole file.
+        static let windows = 200
     }
 
     private static let commentPrefix = "#"

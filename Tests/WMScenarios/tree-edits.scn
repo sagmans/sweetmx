@@ -14,8 +14,8 @@ move left
 resize right 0.1
 # It cannot shrink below a tenth of the pair.
 resize right -5
-# It swaps with each neighbor in turn and takes that slot's width, then the
-# edge of the view stops it.
+# It swaps with each neighbor in turn and keeps its own width, then the edge
+# of the view stops it.
 move right
 move right
 move right

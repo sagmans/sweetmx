@@ -9,25 +9,23 @@ extension Split {
     /// A new child takes the mean weight, so it gets the same share as an average sibling whatever
     /// the earlier resizes were.
     mutating func insert(_ child: Node, at index: Int) {
-        let share = weights.isEmpty ? Split.unitWeight : weights.reduce(0, +) / Double(weights.count)
-        children.insert(child, at: index)
-        weights.insert(share, at: index)
+        let share = children.isEmpty ? Split.unitWeight : totalWeight / Double(children.count)
+        children.insert(Child(node: child, weight: share), at: index)
     }
 
-    mutating func remove(at index: Int) {
-        children.remove(at: index)
-        weights.remove(at: index)
+    var totalWeight: Double {
+        children.reduce(0) { $0 + $1.weight }
     }
 
     /// Moves the border between two children. Their combined weight stays the same, so no other
     /// child moves, and each keeps at least `minimumPairShare` of it.
     mutating func grow(_ index: Int, by amount: Double, takingFrom neighbor: Int) {
-        let pair = weights[index] + weights[neighbor]
+        let pair = children[index].weight + children[neighbor].weight
         let floor = pair * Split.minimumPairShare
-        let wanted = weights[index] + amount * weights.reduce(0, +)
+        let wanted = children[index].weight + amount * totalWeight
         let grown = min(max(wanted, floor), pair - floor)
-        weights[index] = grown
-        weights[neighbor] = pair - grown
+        children[index].weight = grown
+        children[neighbor].weight = pair - grown
     }
 }
 
@@ -62,7 +60,7 @@ extension Node {
     private func collectWindows(into found: inout [WindowID]) {
         switch content {
         case let .window(window): found.append(window)
-        case let .split(split): split.children.forEach { $0.collectWindows(into: &found) }
+        case let .split(split): split.children.forEach { $0.node.collectWindows(into: &found) }
         }
     }
 
@@ -86,7 +84,7 @@ extension Node {
         guard let split else { return false }
         for (index, child) in split.children.enumerated() {
             path.append(index)
-            if child.search(matches, path: &path) {
+            if child.node.search(matches, path: &path) {
                 return true
             }
             path.removeLast()
@@ -99,7 +97,7 @@ extension Node {
         var node = self
         for index in path {
             guard let split = node.split, split.children.indices.contains(index) else { return nil }
-            node = split.children[index]
+            node = split.children[index].node
         }
         return node
     }
@@ -116,8 +114,21 @@ extension Node {
             assertionFailure("WMCore: path leaves the tree")
             return
         }
-        split.children[index].update(at: path.dropFirst(), body)
+        split.children[index].node.update(at: path.dropFirst(), body)
         content = .split(split)
+    }
+
+    /// Edits the split at a path in place. Every edit of a split goes through here, so a path that
+    /// names a window by a fault is reported once, in the same way as a path that leaves the tree.
+    mutating func updateSplit(at path: some Collection<Int>, _ body: (inout Split) -> Void) {
+        update(at: path) { node in
+            guard var split = node.split else {
+                assertionFailure("WMCore: the path names a window where an edit needs a split")
+                return
+            }
+            body(&split)
+            node.content = .split(split)
+        }
     }
 
     /// Follows one child at each split until a window is reached.
@@ -133,7 +144,7 @@ extension Node {
     /// near edge of splits that lie along the move, the first child of the others.
     func leafEntered(from direction: Direction) -> Node {
         descend { split in
-            split.axis == direction.axis && direction.step < 0 ? split.children.last : split.children.first
+            (split.axis == direction.axis && direction.step < 0 ? split.children.last : split.children.first)?.node
         }
     }
 }
@@ -158,6 +169,12 @@ extension Workspace {
         root?.windows ?? []
     }
 
+    /// How many times the user has zoomed in: the number of levels between the root and the view.
+    public var zoomDepth: Int {
+        guard let root, let viewRoot else { return 0 }
+        return root.path(to: viewRoot)?.count ?? 0
+    }
+
     /// Takes the node at `path` out of the tree and repairs the tree around the hole: a split left
     /// with no child goes too, and a split left with one child gives its place to that child, so
     /// a removal never leaves an empty box on the screen. Returns nil when the tree is now empty.
@@ -171,9 +188,9 @@ extension Workspace {
             var remaining = 0
             tree.update(at: path) { parent in
                 guard var split = parent.split else { return }
-                split.remove(at: index)
+                split.children.remove(at: index)
                 remaining = split.children.count
-                parent = remaining == 1 ? split.children[0] : Node(id: parent.id, content: .split(split))
+                parent = remaining == 1 ? split.children[0].node : Node(id: parent.id, content: .split(split))
             }
             if remaining > 0 {
                 root = tree
@@ -206,8 +223,8 @@ extension Workspace {
         let before = detachment.gap > 0
         var neighbor = heir
         if !detachment.hoisted, let split = heir.split {
-            neighbor = split.children[before ? detachment.gap - 1 : 0]
+            neighbor = split.children[before ? detachment.gap - 1 : 0].node
         }
-        return neighbor.descend { before ? $0.children.last : $0.children.first }.id
+        return neighbor.descend { (before ? $0.children.last : $0.children.first)?.node }.id
     }
 }

@@ -164,7 +164,8 @@ public struct Gaps: Equatable, Sendable {
     public static let none = Gaps(inner: 0, outer: 0)
 
     /// Gaps will come from the config file, which is untrusted input. A value that is negative or
-    /// not finite becomes no gap, so a bad number can never push a window off the screen.
+    /// not finite becomes no gap. A gap larger than a window is still a valid number; the layout
+    /// keeps such a window on the screen with an empty frame.
     public init(inner: Double, outer: Double) {
         self.inner = Gaps.usable(inner)
         self.outer = Gaps.usable(outer)
@@ -183,15 +184,21 @@ public struct Split: Equatable, Sendable {
     /// no resize can make a window vanish.
     static let minimumPairShare = 0.1
 
-    public internal(set) var axis: Axis
-    public internal(set) var children: [Node]
-    /// One weight per child: the child's part of the split is its weight over the sum.
-    public internal(set) var weights: [Double]
+    /// One place in a split. The node and its weight are one value, so no edit can change the
+    /// order of the nodes and leave their sizes behind, and a moved window keeps its size.
+    public struct Child: Equatable, Sendable {
+        public internal(set) var node: Node
+        /// The child's part of the split is its weight over the sum of all weights.
+        public internal(set) var weight: Double
+    }
 
-    public init(axis: Axis, children: [Node], weights: [Double]) {
+    public internal(set) var axis: Axis
+    public internal(set) var children: [Child]
+
+    /// A fresh split: every node gets the same share.
+    init(axis: Axis, nodes: [Node]) {
         self.axis = axis
-        self.children = children
-        self.weights = weights
+        children = nodes.map { Child(node: $0, weight: Split.unitWeight) }
     }
 }
 
@@ -204,11 +211,6 @@ public struct Node: Equatable, Sendable {
 
     public let id: NodeID
     public internal(set) var content: Content
-
-    public init(id: NodeID, content: Content) {
-        self.id = id
-        self.content = content
-    }
 }
 
 /// One cell of the grid: a tree of splits and windows, and where the user is in it.
@@ -222,7 +224,7 @@ public struct Workspace: Equatable, Sendable {
     /// on a hidden window.
     public internal(set) var focus: NodeID?
 
-    public init(root: Node? = nil, viewRoot: NodeID? = nil, focus: NodeID? = nil) {
+    init(root: Node? = nil, viewRoot: NodeID? = nil, focus: NodeID? = nil) {
         self.root = root
         self.viewRoot = viewRoot
         self.focus = focus
@@ -235,7 +237,7 @@ public struct Grid: Equatable, Sendable {
     public internal(set) var cells: [Coord: Workspace]
     public internal(set) var current: Coord
 
-    public init(cells: [Coord: Workspace] = [.origin: Workspace()], current: Coord = .origin) {
+    init(cells: [Coord: Workspace] = [.origin: Workspace()], current: Coord = .origin) {
         self.cells = cells
         self.current = current
     }
@@ -255,11 +257,13 @@ public struct WMState: Equatable, Sendable {
     public internal(set) var gaps: Gaps
     public internal(set) var nodeIDs: NodeIDSource
 
-    public init(grid: Grid = Grid(), screen: Rect, gaps: Gaps = .none, nodeIDs: NodeIDSource = NodeIDSource()) {
-        self.grid = grid
+    /// The starting state: one empty workspace. `screen` must be usable (finite, with an area);
+    /// the layout gives no frame on a screen that is not.
+    public init(screen: Rect, gaps: Gaps = .none) {
+        grid = Grid()
         self.screen = screen
         self.gaps = gaps
-        self.nodeIDs = nodeIDs
+        nodeIDs = NodeIDSource()
     }
 }
 
