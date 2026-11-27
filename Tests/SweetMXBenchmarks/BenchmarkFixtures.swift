@@ -136,6 +136,10 @@ final nonisolated class SandboxFileSystem: FileSystemProtocol, @unchecked Sendab
         system.resolvingSymlinks(url)
     }
 
+    func readData(at url: URL, maxBytes: Int) -> Data? {
+        inside(url.path) ? system.readData(at: url, maxBytes: maxBytes) : nil
+    }
+
     func allocatedSize(at url: URL, limit: Int) -> Int64? {
         inside(url.path) ? system.allocatedSize(at: url, limit: limit) : nil
     }

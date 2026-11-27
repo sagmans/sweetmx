@@ -87,6 +87,10 @@ public nonisolated protocol FileSystemProtocol: Sendable {
     /// Compare locations by what they really are, not by the path text a caller built.
     func resolvingSymlinks(_ url: URL) -> URL
 
+    /// Read a small metadata file (an app's Info.plist) without trusting its size or any link:
+    /// nil when it is missing, not a regular file, a link, unreadable, or larger than `maxBytes`.
+    func readData(at url: URL, maxBytes: Int) -> Data?
+
     /// Show how much disk an item uses without scanning a huge tree. `limit` is the most directory
     /// entries to visit; the result is nil past it or when something is unreadable.
     func allocatedSize(at url: URL, limit: Int) -> Int64?

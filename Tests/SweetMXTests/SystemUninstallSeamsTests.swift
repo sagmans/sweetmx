@@ -88,6 +88,20 @@ final class SystemUninstallSeamsTests: XCTestCase {
         XCTAssertFalse(fileSystem.isWritableDirectory(at: file))
     }
 
+    func testReadDataHonorsBoundLinksAndMissingFiles() throws {
+        let folder = try makeDirectory(Names.tree)
+        let file = folder.appendingPathComponent(Names.file)
+        try Data(count: Fixture.leafCount).write(to: file)
+        let link = folder.appendingPathComponent(Names.link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+
+        XCTAssertEqual(fileSystem.readData(at: file, maxBytes: Fixture.leafCount)?.count, Fixture.leafCount)
+        XCTAssertNil(fileSystem.readData(at: file, maxBytes: Fixture.leafCount - 1))
+        XCTAssertNil(fileSystem.readData(at: link, maxBytes: Fixture.underLimit))
+        XCTAssertNil(fileSystem.readData(at: folder, maxBytes: Fixture.underLimit))
+        XCTAssertNil(fileSystem.readData(at: folder.appendingPathComponent(Names.leaf), maxBytes: Fixture.underLimit))
+    }
+
     func testAllocatedSizeCountsEntriesUnderTheLimit() throws {
         let tree = try makeTree(leaves: Fixture.leafCount)
 

@@ -106,6 +106,20 @@ public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked
         url.resolvingSymlinksInPath()
     }
 
+    public func readData(at url: URL, maxBytes: Int) -> Data? {
+        guard maxBytes > 0, maxBytes < Int.max else { return nil }
+        // O_NOFOLLOW refuses a link as the last component; O_NONBLOCK stops a FIFO from hanging the read.
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              (0 ... Int64(maxBytes)).contains(info.st_size) else { return nil }
+        let expectedSize = Int(info.st_size)
+        guard let data = try? file.read(upToCount: expectedSize + 1), data.count == expectedSize else { return nil }
+        return data
+    }
+
     public func allocatedSize(at url: URL, limit: Int) -> Int64? {
         var failed = false
         // The enumerator does not follow links, so a link inside the app counts as itself only.

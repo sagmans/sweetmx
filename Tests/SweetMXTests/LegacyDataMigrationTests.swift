@@ -397,6 +397,10 @@ private final nonisolated class NonDirectoryCopyFileSystem: FileSystemProtocol, 
         base.resolvingSymlinks(url)
     }
 
+    func readData(at url: URL, maxBytes: Int) -> Data? {
+        base.readData(at: url, maxBytes: maxBytes)
+    }
+
     func allocatedSize(at url: URL, limit: Int) -> Int64? {
         base.allocatedSize(at: url, limit: limit)
     }

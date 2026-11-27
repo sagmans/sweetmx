@@ -402,6 +402,14 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         }
     }
 
+    /// Serves `fileContents`, so a test scripts an Info.plist with `addFile(at:contents:)`; a file over the bound reads as nil.
+    func readData(at url: URL, maxBytes: Int) -> Data? {
+        withStateLock {
+            guard let data = _fileContents[url.path], data.count <= maxBytes else { return nil }
+            return data
+        }
+    }
+
     func allocatedSize(at url: URL, limit: Int) -> Int64? {
         withStateLock {
             _allocatedSizeCalls.append((url: url, limit: limit))
