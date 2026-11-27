@@ -2,9 +2,9 @@
   "host" : "Mac14,6, 12 cores",
   "metrics" : {
     "app_binary_kib" : {
-      "baseline" : 2406.32,
+      "baseline" : 3186.008,
       "kind" : "size",
-      "limit" : 2646.953,
+      "limit" : 3504.609,
       "summary" : "Release executable size",
       "unit" : "KiB"
     },
@@ -107,5 +107,5 @@
       "unit" : "ms"
     }
   },
-  "recordedAt" : "2026-11-27T07:46:27Z"
+  "recordedAt" : "2026-11-27T17:42:11Z"
 }
