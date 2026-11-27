@@ -1,0 +1,32 @@
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2*)
+frame 1 0 0 960 1080
+frame 2 960 0 960 1080
+hidden -
+effects 3
+  frame 1 0 0 960 1080
+  frame 2 960 0 960 1080
+  focus 2
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2 3*)
+frame 1 0 0 640 1080
+frame 2 640 0 640 1080
+frame 3 1280 0 640 1080
+hidden -
+effects 4
+  frame 1 0 0 640 1080
+  frame 2 640 0 640 1080
+  frame 3 1280 0 640 1080
+  focus 3

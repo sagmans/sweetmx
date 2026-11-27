@@ -1,0 +1,51 @@
+> gaps 10 20
+grid 0,0 workspaces 1 zoom 0
+tree -
+hidden -
+effects 0
+
+> screen 0 25 1440 875
+grid 0,0 workspaces 1 zoom 0
+tree -
+hidden -
+effects 0
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 20 45 1400 835
+hidden -
+effects 2
+  frame 1 20 45 1400 835
+  focus 1
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2*)
+frame 1 20 45 695 835
+frame 2 725 45 695 835
+hidden -
+effects 3
+  frame 1 20 45 695 835
+  frame 2 725 45 695 835
+  focus 2
+
+> split vertical
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 v(2*))
+frame 1 20 45 695 835
+frame 2 725 45 695 835
+hidden -
+effects 0
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 v(2 3*))
+frame 1 20 45 695 835
+frame 2 725 45 695 413
+frame 3 725 468 695 412
+hidden -
+effects 3
+  frame 2 725 45 695 413
+  frame 3 725 468 695 412
+  focus 3

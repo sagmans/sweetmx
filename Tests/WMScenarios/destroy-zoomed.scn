@@ -1,0 +1,8 @@
+# Close the window the user zoomed in on. Passes when the view moves to the
+# parent and the focus lands on a sibling.
+create
+create
+create
+focus left
+zoom in
+destroy 2

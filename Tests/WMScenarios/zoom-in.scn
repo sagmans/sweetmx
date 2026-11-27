@@ -1,0 +1,7 @@
+# Zoom in on the second of three windows. Passes when it gets the full
+# screen and the other two are hidden.
+create
+create
+create
+focus left
+zoom in

@@ -1,0 +1,5 @@
+# Walk right across 1000 empty cells, then jump back. Passes when the map
+# holds one workspace: walking leaves no empty workspace behind.
+create
+repeat 1000 grid right
+goto 0 0

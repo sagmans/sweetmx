@@ -2,11 +2,19 @@
 # Scenario checks for the window manager: run its development tools as a user
 # does and compare what they print and how they exit. They carry the proof for
 # each window manager step, so `make test` runs them and `pre-push` runs them
-# on every pushed tip. Later steps add scenario files to the same run.
-# Usage: WM_SCENARIO_TIMEOUT=<s> scripts/wm-scenarios.sh   (make wm-scenarios)
+# on every pushed tip.
+#
+# A scenario file (Tests/WMScenarios/<name>.scn) is a list of inputs for the
+# window manager model. `wm-sim` prints the screen after each line, and that
+# output must equal <name>.expected byte for byte. To add or change one, write
+# the .scn file, run `swift run wm-sim <file> > <name>.expected`, and read the
+# result line by line before committing it: the expected file is the proof.
+# Usage: WM_SCENARIO_TIMEOUT=<s> WM_FUZZ_TIMEOUT=<s> scripts/wm-scenarios.sh
+#        (make wm-scenarios)
 set -euo pipefail
 
 readonly RUN_SECONDS="${WM_SCENARIO_TIMEOUT:?set by make wm-scenarios}"
+readonly FUZZ_SECONDS="${WM_FUZZ_TIMEOUT:?set by make wm-scenarios}"
 readonly SIMULATOR=wm-sim
 readonly CONTROL=wmctl
 # The model version is semantic; the exact value lives only in WMCore.
@@ -16,7 +24,20 @@ readonly USAGE_LINE="usage: ${SIMULATOR} .*"
 # not there yet.
 readonly EXIT_OK=0
 readonly EXIT_USAGE=64
+readonly EXIT_DATA=65
+readonly EXIT_NO_INPUT=66
 readonly EXIT_UNAVAILABLE=69
+readonly SCENARIO_DIR=Tests/WMScenarios
+# Files the model must refuse; each has the one error line it must print.
+readonly INVALID_DIR="$SCENARIO_DIR/invalid"
+readonly SCENARIO_SUFFIX=.scn
+readonly EXPECTED_SUFFIX=.expected
+# The scenarios that the window manager plan names as proof of the model. The
+# run fails when one is missing, so deleting a file cannot make it pass.
+readonly REQUIRED_SCENARIOS=(three-way-split zoom-in zoom-create deep-zoom grid-walk destroy-zoomed zoom-out-at-root)
+# Random inputs in the property run, and the line a clean run prints.
+readonly FUZZ_STEPS=100000
+readonly FUZZ_LINE="^fuzz ok: steps=${FUZZ_STEPS} seed=[0-9]+ rules=[1-9][0-9]* .*\$"
 
 if ! command -v timeout >/dev/null 2>&1; then
 	printf '❌ wm-scenarios: timeout is not installed\n' >&2
@@ -52,16 +73,33 @@ stream_matches() {
 	fi
 }
 
-# scenario <name> <exit> <stdout pattern> <stderr pattern> <tool> [args...]
+# A stream judged against a file: it must equal the file byte for byte. A
+# scenario names this in front of the path where it expects exact output.
+readonly SAME_AS='same-as:'
+
+# stream_as_expected <file> <pattern | EMPTY | SAME_AS path>
+stream_as_expected() {
+	if [[ "$2" == "$SAME_AS"* ]]; then
+		diff -u -- "${2#"$SAME_AS"}" "$1" >"$scratch/diff" 2>&1
+	else
+		stream_matches "$1" "$2"
+	fi
+}
+
+# The time limit of the next scenario; the property run sets its own.
+limit=$RUN_SECONDS
+
+# scenario <name> <exit> <stdout> <stderr> <tool> [args...]
 # One call per scenario, so a new one is one line and every scenario judges
 # the exit status and both streams: none can pass on a partial check.
 scenario() {
 	local name=$1 expected=$2 out_pattern=$3 err_pattern=$4 status=0 problems=''
 	shift 4
-	timeout "$RUN_SECONDS" "$bin_dir/$1" "${@:2}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
+	: >"$scratch/diff"
+	timeout "$limit" "$bin_dir/$1" "${@:2}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
 	[[ "$status" -eq "$expected" ]] || problems+=" exit=$status (expected $expected)"
-	stream_matches "$scratch/stdout" "$out_pattern" || problems+=' stdout'
-	stream_matches "$scratch/stderr" "$err_pattern" || problems+=' stderr'
+	stream_as_expected "$scratch/stdout" "$out_pattern" || problems+=' stdout'
+	stream_as_expected "$scratch/stderr" "$err_pattern" || problems+=' stderr'
 	if [[ -z "$problems" ]]; then
 		printf 'ok   %s\n' "$name"
 		return 0
@@ -73,7 +111,40 @@ scenario() {
 		cat "$scratch/stdout"
 		printf -- '--- stderr\n'
 		cat "$scratch/stderr"
+		printf -- '--- difference from the expected file\n'
+		cat "$scratch/diff"
 	} >&2
+}
+
+# fail <message>: a problem with the scenario files themselves.
+fail() {
+	failures=$((failures + 1))
+	printf '❌ wm-scenarios: %s\n' "$1" >&2
+}
+
+# scenario_files <folder> <exit> <stream>: runs every scenario file in a
+# folder. <stream> is the one that must equal the expected file (stdout for a
+# good file, stderr for a refused one); the other must be empty.
+scenario_files() {
+	local folder=$1 expected=$2 stream=$3 file base found=0
+	for file in "$folder"/*"$SCENARIO_SUFFIX"; do
+		[[ -f "$file" ]] || continue
+		found=$((found + 1))
+		base=${file%"$SCENARIO_SUFFIX"}
+		if [[ ! -f "$base$EXPECTED_SUFFIX" ]]; then
+			fail "$file has no ${base##*/}$EXPECTED_SUFFIX"
+		elif [[ "$stream" == stdout ]]; then
+			scenario "$file" "$expected" "$SAME_AS$base$EXPECTED_SUFFIX" "$EMPTY" "$SIMULATOR" "$file"
+		else
+			scenario "$file" "$expected" "$EMPTY" "$SAME_AS$base$EXPECTED_SUFFIX" "$SIMULATOR" "$file"
+		fi
+	done
+	# A folder with no scenario would pass by running nothing.
+	[[ "$found" -gt 0 ]] || fail "no scenario file in $folder"
+	for file in "$folder"/*"$EXPECTED_SUFFIX"; do
+		[[ -f "$file" ]] || continue
+		[[ -f "${file%"$EXPECTED_SUFFIX"}$SCENARIO_SUFFIX" ]] || fail "$file has no scenario file"
+	done
 }
 
 scenario "$SIMULATOR --version prints the version" "$EXIT_OK" "$VERSION_LINE" "$EMPTY" "$SIMULATOR" --version
@@ -82,6 +153,23 @@ scenario "$SIMULATOR --version prints the version" "$EXIT_OK" "$VERSION_LINE" "$
 scenario "$SIMULATOR rejects no argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR"
 scenario "$SIMULATOR rejects an unknown flag" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --no-such-flag
 scenario "$SIMULATOR rejects an extra argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --version extra
+scenario "$SIMULATOR rejects a missing scenario file" "$EXIT_NO_INPUT" "$EMPTY" "${SIMULATOR}: .*: cannot read the file" "$SIMULATOR" "$SCENARIO_DIR/no-such-file$SCENARIO_SUFFIX"
+scenario "$SIMULATOR rejects a property run of no steps" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 0
+scenario "$SIMULATOR rejects a seed that is not a number" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 10 --seed x
+
+for name in "${REQUIRED_SCENARIOS[@]}"; do
+	[[ -f "$SCENARIO_DIR/$name$SCENARIO_SUFFIX" ]] || fail "required scenario $name is missing"
+done
+scenario_files "$SCENARIO_DIR" "$EXIT_OK" stdout
+scenario_files "$INVALID_DIR" "$EXIT_DATA" stderr
+
+# Random inputs with the rules of a sound state checked after each one. The
+# seed is fixed, so the run is the same on every machine and a failure can be
+# replayed. A debug build takes about 11 s for this many steps.
+limit=$FUZZ_SECONDS
+scenario "$SIMULATOR --fuzz $FUZZ_STEPS keeps every rule" "$EXIT_OK" "$FUZZ_LINE" "$EMPTY" "$SIMULATOR" --fuzz "$FUZZ_STEPS"
+limit=$RUN_SECONDS
+
 scenario "$CONTROL says it has no commands yet" "$EXIT_UNAVAILABLE" "$EMPTY" "${CONTROL}: no commands yet.*" "$CONTROL" query
 
 if [[ "$failures" -gt 0 ]]; then

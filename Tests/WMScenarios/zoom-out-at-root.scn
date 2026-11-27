@@ -1,0 +1,4 @@
+# Zoom out with no zoom. Passes when nothing changes and no effect is made.
+create
+create
+zoom out

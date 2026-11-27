@@ -1,0 +1,123 @@
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2*)
+frame 1 0 0 960 1080
+frame 2 960 0 960 1080
+hidden -
+effects 3
+  frame 1 0 0 960 1080
+  frame 2 960 0 960 1080
+  focus 2
+
+> send 1 0
+grid 0,0 workspaces 2 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden 2
+effects 3
+  hide 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> grid right
+grid 1,0 workspaces 2 zoom 0
+tree @2*
+frame 2 0 0 1920 1080
+hidden 1
+effects 3
+  hide 1
+  frame 2 0 0 1920 1080
+  focus 2
+
+> create
+grid 1,0 workspaces 2 zoom 0
+tree @h(2 3*)
+frame 2 0 0 960 1080
+frame 3 960 0 960 1080
+hidden 1
+effects 3
+  frame 2 0 0 960 1080
+  frame 3 960 0 960 1080
+  focus 3
+
+> zoom in
+grid 1,0 workspaces 2 zoom 1
+tree h(2 @3*)
+frame 3 0 0 1920 1080
+hidden 1 2
+effects 2
+  hide 2
+  frame 3 0 0 1920 1080
+
+> focused 2
+grid 1,0 workspaces 2 zoom 0
+tree @h(2* 3)
+frame 2 0 0 960 1080
+frame 3 960 0 960 1080
+hidden 1
+effects 2
+  frame 2 0 0 960 1080
+  frame 3 960 0 960 1080
+
+> focused 1
+grid 0,0 workspaces 2 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden 2 3
+effects 3
+  hide 2
+  hide 3
+  frame 1 0 0 1920 1080
+
+> destroy 2
+grid 0,0 workspaces 2 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden 3
+effects 0
+
+> destroy 3
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 0
+
+> destroy 99
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 0
+
+> focused 99
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 0
+
+> grid up
+grid 0,-1 workspaces 2 zoom 0
+tree -
+hidden 1
+effects 1
+  hide 1
+
+> grid down
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1

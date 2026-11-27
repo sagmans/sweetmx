@@ -1,0 +1,23 @@
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> repeat 1000 grid right
+grid 1000,0 workspaces 2 zoom 0
+tree -
+hidden 1
+effects 1
+
+> goto 0 0
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1

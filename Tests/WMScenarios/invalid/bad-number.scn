@@ -1,0 +1,3 @@
+# A number that is not finite.
+create
+resize left nan

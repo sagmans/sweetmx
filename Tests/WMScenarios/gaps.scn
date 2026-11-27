@@ -1,0 +1,8 @@
+# Gaps and a screen that does not start at the top left. Passes when the
+# windows are 20 points from the screen edge and 10 points from each other.
+gaps 10 20
+screen 0 25 1440 875
+create
+create
+split vertical
+create

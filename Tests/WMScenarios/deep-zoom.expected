@@ -1,0 +1,85 @@
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2*)
+frame 1 0 0 960 1080
+frame 2 960 0 960 1080
+hidden -
+effects 3
+  frame 1 0 0 960 1080
+  frame 2 960 0 960 1080
+  focus 2
+
+> repeat 50 zoom in ; create
+grid 0,0 workspaces 1 zoom 50
+tree h(1 v(2 h(3 v(4 h(5 v(6 h(7 v(8 h(9 v(10 h(11 v(12 h(13 v(14 h(15 v(16 h(17 v(18 h(19 v(20 h(21 v(22 h(23 v(24 h(25 v(26 h(27 v(28 h(29 v(30 h(31 v(32 h(33 v(34 h(35 v(36 h(37 v(38 h(39 v(40 h(41 v(42 h(43 v(44 h(45 v(46 h(47 v(48 h(49 v(50 @h(51 52*)))))))))))))))))))))))))))))))))))))))))))))))))))
+frame 51 0 0 960 1080
+frame 52 960 0 960 1080
+hidden 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50
+effects 250
+
+> repeat 50 zoom out
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 v(2 h(3 v(4 h(5 v(6 h(7 v(8 h(9 v(10 h(11 v(12 h(13 v(14 h(15 v(16 h(17 v(18 h(19 v(20 h(21 v(22 h(23 v(24 h(25 v(26 h(27 v(28 h(29 v(30 h(31 v(32 h(33 v(34 h(35 v(36 h(37 v(38 h(39 v(40 h(41 v(42 h(43 v(44 h(45 v(46 h(47 v(48 h(49 v(50 h(51 52*)))))))))))))))))))))))))))))))))))))))))))))))))))
+frame 1 0 0 960 1080
+frame 2 960 0 960 540
+frame 3 960 540 480 540
+frame 4 1440 540 480 270
+frame 5 1440 810 240 270
+frame 6 1680 810 240 135
+frame 7 1680 945 120 135
+frame 8 1800 945 120 68
+frame 9 1800 1013 60 67
+frame 10 1860 1013 60 33
+frame 11 1860 1046 30 34
+frame 12 1890 1046 30 17
+frame 13 1890 1063 15 17
+frame 14 1905 1063 15 9
+frame 15 1905 1072 8 8
+frame 16 1913 1072 7 4
+frame 17 1913 1076 3 4
+frame 18 1916 1076 4 2
+frame 19 1916 1078 2 2
+frame 20 1918 1078 2 1
+frame 21 1918 1079 1 1
+frame 22 1919 1079 1 0
+frame 23 1919 1079 1 1
+frame 24 1920 1079 0 1
+frame 25 1920 1080 0 0
+frame 26 1920 1080 0 0
+frame 27 1920 1080 0 0
+frame 28 1920 1080 0 0
+frame 29 1920 1080 0 0
+frame 30 1920 1080 0 0
+frame 31 1920 1080 0 0
+frame 32 1920 1080 0 0
+frame 33 1920 1080 0 0
+frame 34 1920 1080 0 0
+frame 35 1920 1080 0 0
+frame 36 1920 1080 0 0
+frame 37 1920 1080 0 0
+frame 38 1920 1080 0 0
+frame 39 1920 1080 0 0
+frame 40 1920 1080 0 0
+frame 41 1920 1080 0 0
+frame 42 1920 1080 0 0
+frame 43 1920 1080 0 0
+frame 44 1920 1080 0 0
+frame 45 1920 1080 0 0
+frame 46 1920 1080 0 0
+frame 47 1920 1080 0 0
+frame 48 1920 1080 0 0
+frame 49 1920 1080 0 0
+frame 50 1920 1080 0 0
+frame 51 1920 1080 0 0
+frame 52 1920 1080 0 0
+hidden -
+effects 981

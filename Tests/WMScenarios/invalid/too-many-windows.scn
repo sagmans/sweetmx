@@ -1,0 +1,2 @@
+# More windows than a scenario may open.
+repeat 2001 create

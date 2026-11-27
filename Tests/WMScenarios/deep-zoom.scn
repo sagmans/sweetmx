@@ -1,0 +1,7 @@
+# Zoom in 50 levels with a new window at each level, then zoom out 50
+# levels. Passes when the first layout returns (window 1 has its first frame
+# again, the view is the root) and all 52 windows have a frame.
+create
+create
+repeat 50 zoom in ; create
+repeat 50 zoom out

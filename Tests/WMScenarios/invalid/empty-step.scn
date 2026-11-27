@@ -1,0 +1,2 @@
+# A repeat with an empty step.
+repeat 3 create ;

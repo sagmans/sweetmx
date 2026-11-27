@@ -1,0 +1,10 @@
+# Open two windows while zoomed on the second of three, then zoom out.
+# Passes when the slot the second window had now holds three windows.
+create
+create
+create
+focus left
+zoom in
+create
+create
+zoom out

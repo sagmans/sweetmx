@@ -1,0 +1,27 @@
+# Split, move, resize and focus in one tree. Passes when each line changes
+# the tree as its comment says and the frames still tile the screen.
+create
+create
+# The next window opens under window 2, not beside it.
+split vertical
+create
+# Window 2 leaves the column and stands between 1 and the column.
+focus up
+move left
+# It swaps with window 1.
+move left
+# It takes a tenth of the row from window 1.
+resize right 0.1
+# It cannot shrink below a tenth of the pair.
+resize right -5
+# It swaps with each neighbor in turn and takes that slot's width, then the
+# edge of the view stops it.
+move right
+move right
+move right
+# The focus stops at the edge of the view.
+focus left
+focus left
+focus left
+# A window that moves across the axis of the view gets a row of its own.
+move up

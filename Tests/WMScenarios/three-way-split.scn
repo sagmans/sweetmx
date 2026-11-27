@@ -1,0 +1,5 @@
+# Three windows open one after the other. Passes when the three frames tile
+# the screen exactly: no overlap and no hole.
+create
+create
+create

@@ -1,0 +1,22 @@
+# Windows on more than one workspace. Passes when a sent window is hidden
+# until its workspace is shown, the view follows a window that the system
+# focused, and a workspace that loses its last window leaves the map.
+create
+create
+# Window 2 goes to the cell on the right; the user stays.
+send 1 0
+grid right
+create
+zoom in
+# The system focused a window outside the zoomed view: the view widens.
+focused 2
+# The system focused a window on another workspace: the grid follows.
+focused 1
+destroy 2
+destroy 3
+# Unknown windows change nothing. A walk into an empty cell and back leaves
+# no workspace behind.
+destroy 99
+focused 99
+grid up
+grid down

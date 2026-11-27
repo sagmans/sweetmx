@@ -1,0 +1,1 @@
+wm-sim: Tests/WMScenarios/invalid/too-many-windows.scn:2: a scenario opens at most 2000 windows

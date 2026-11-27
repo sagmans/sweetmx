@@ -195,9 +195,12 @@ BUNDLE_GUARD = [ -x "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)" ] \
 # Bounds one run of a window manager tool in a scenario check, so a hung tool fails `make test`
 # instead of blocking it. Each run takes milliseconds.
 WM_SCENARIO_TIMEOUT := 30
+# The property run applies 100 000 random inputs to a debug build, about 11 s on the baseline Mac;
+# its own limit leaves room for a loaded machine and still stops a run that hangs.
+WM_FUZZ_TIMEOUT := 180
 # One command for `make test` and `make wm-scenarios`, so both run the same checks. A shell
 # fragment, not a sub-make, so `make -n test` stays a dry run.
-WM_SCENARIOS = WM_SCENARIO_TIMEOUT=$(WM_SCENARIO_TIMEOUT) bash scripts/wm-scenarios.sh
+WM_SCENARIOS = WM_SCENARIO_TIMEOUT=$(WM_SCENARIO_TIMEOUT) WM_FUZZ_TIMEOUT=$(WM_FUZZ_TIMEOUT) bash scripts/wm-scenarios.sh
 # The app's Application Support folder; must match AppDataLocation.folderName in the app.
 DATA_FOLDER_NAME := $(APP_NAME)
 # Sampling window of `make profile-app`; long enough to span many clipboard polls.
