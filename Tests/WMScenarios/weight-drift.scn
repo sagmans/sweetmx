@@ -1,6 +1,6 @@
 # A window grows, leaves and comes back, many times. Passes when the three
-# windows still have an area at the end, no narrower than a fifth of an equal
-# share: the sizes in the tree must not drift toward zero.
+# windows still have an area at the end: the sizes in the tree must not drift
+# toward zero, and a resize stops at a fifth of an equal share.
 create
 create
 create

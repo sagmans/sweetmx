@@ -49,6 +49,9 @@ extension Workspace {
     mutating func remove(_ window: WindowID) -> Node? {
         guard let tree = root, let path = tree.path(toWindow: window), let leaf = tree.node(at: path) else { return nil }
         let detachment = detach(at: path)
+        // Nothing left the tree (a fault in the path), so there is no node to hand on: a caller
+        // that put it in another workspace would hold the window twice.
+        guard detachment != nil || root == nil else { return nil }
         settleView(after: detachment)
         if focus == leaf.id, let detachment {
             focus = self.leaf(beside: detachment)
@@ -147,6 +150,7 @@ extension Workspace {
               let leaf = root.node(at: focusPath), let index = focusPath.last
         else { return }
         var tree = root
+        let before = self
         let parentPath = Array(focusPath.dropLast())
         guard let parent = tree.node(at: parentPath)?.split else { return }
         let neighbor = index + direction.step
@@ -179,7 +183,13 @@ extension Workspace {
             stalePath.insert(towardEnd ? 0 : 1, at: viewPath.count)
         }
         self.root = tree
-        settleView(after: detach(at: stalePath))
+        // The tree holds the window twice until the old node is out. A move leaves at least that
+        // window, so no detachment means the path was at fault, and the whole move is undone.
+        guard let detachment = detach(at: stalePath) else {
+            self = before
+            return
+        }
+        settleView(after: detachment)
     }
 
     /// The depth of the nearest split above the focused window's parent, inside the view, that

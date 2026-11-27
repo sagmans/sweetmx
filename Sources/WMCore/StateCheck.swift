@@ -9,7 +9,7 @@ public enum StateRule: String, CaseIterable, Sendable {
     /// `viewRoot` and `focus` name existing nodes, and the focus is a window inside the view.
     case references
     /// Every split has a child, and the weights keep one scale: their mean is one and none is
-    /// below the smallest share.
+    /// below `Split.settledFloor`.
     case splitShape = "split-shape"
     /// The current cell exists, and no other workspace is empty.
     case gridCells = "grid-cells"
@@ -171,9 +171,9 @@ private enum BrokenExample {
         return state
     }
 
-    private static func row(_ nodes: [Node], weights: [Double]? = nil) -> Workspace {
+    private static func row(_ nodes: [Node], weights: [Double] = []) -> Workspace {
         var split = Split(axis: .horizontal, nodes: nodes)
-        for (index, weight) in (weights ?? []).enumerated() {
+        for (index, weight) in weights.enumerated() {
             split.children[index].weight = weight
         }
         return Workspace(root: Node(id: NodeID(0), content: .split(split)), viewRoot: NodeID(0), focus: nodes.first?.id)

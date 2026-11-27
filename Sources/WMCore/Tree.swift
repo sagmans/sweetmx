@@ -6,11 +6,10 @@
 typealias NodePath = [Int]
 
 extension Split {
-    /// A new child takes the mean weight, so it gets the same share as an average sibling whatever
-    /// the earlier resizes were.
+    /// A new child takes the mean weight, which is always one, so it gets the same share as an
+    /// average sibling whatever the earlier resizes were.
     mutating func insert(_ child: Node, at index: Int) {
-        let share = children.isEmpty ? Split.unitWeight : totalWeight / Double(children.count)
-        children.insert(Child(node: child, weight: share), at: index)
+        children.insert(Child(node: child, weight: Split.unitWeight), at: index)
         settleWeights()
     }
 
@@ -23,7 +22,7 @@ extension Split {
         children.reduce(0) { $0 + $1.weight }
     }
 
-    /// Brings the weights back to one scale: a mean of one, and none below the smallest share.
+    /// Brings the weights back to one scale: a mean of one, and none below `settledFloor`.
     ///
     /// Only the ratios matter to the layout, but the numbers must not drift. Without this, each
     /// large child that leaves makes the sum smaller, each new child joins at the smaller scale,
@@ -52,14 +51,16 @@ extension Split {
     }
 
     /// Moves the border between two children. Their combined weight stays the same, so no other
-    /// child moves, and each keeps at least `minimumShare` of an equal share. Two children that
-    /// are both near that size have nothing to give, and the border stays.
+    /// child moves, and each keeps at least `minimumShare` of an equal share. A child that a
+    /// removal left a little below that size keeps what it has: the limit only stops a border, it
+    /// never moves one against the direction the user asked for.
     mutating func grow(_ index: Int, by amount: Double, takingFrom neighbor: Int) {
         let pair = children[index].weight + children[neighbor].weight
         let floor = Split.minimumShare * totalWeight / Double(children.count)
-        guard pair > 2 * floor else { return }
         let wanted = children[index].weight + amount * totalWeight
-        let grown = min(max(wanted, floor), pair - floor)
+        let smallest = min(floor, children[index].weight)
+        let largest = pair - min(floor, children[neighbor].weight)
+        let grown = min(max(wanted, smallest), largest)
         children[index].weight = grown
         children[neighbor].weight = pair - grown
     }
@@ -213,7 +214,8 @@ extension Workspace {
 
     /// Takes the node at `path` out of the tree and repairs the tree around the hole: a split left
     /// with no child goes too, and a split left with one child gives its place to that child, so
-    /// a removal never leaves an empty box on the screen. Returns nil when the tree is now empty.
+    /// a removal never leaves an empty box on the screen. Returns nil when the tree is now empty,
+    /// and also, with the tree still in place and not changed, when the path was at fault.
     ///
     /// It works by path, not by name, because a move puts a copy of the window node at its new
     /// place first and then removes the old one, and both carry the same name for that moment.
