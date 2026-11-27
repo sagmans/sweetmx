@@ -73,33 +73,19 @@ stream_matches() {
 	fi
 }
 
-# A stream judged against a file: it must equal the file byte for byte. A
-# scenario names this in front of the path where it expects exact output.
-readonly SAME_AS='same-as:'
-
-# stream_as_expected <file> <pattern | EMPTY | SAME_AS path>
-stream_as_expected() {
-	if [[ "$2" == "$SAME_AS"* ]]; then
-		diff -u -- "${2#"$SAME_AS"}" "$1" >"$scratch/diff" 2>&1
-	else
-		stream_matches "$1" "$2"
-	fi
+# run_tool <seconds> <tool> [args...]: runs one tool with a time limit and
+# leaves its streams in the scratch folder and its exit status in `status`.
+run_tool() {
+	status=0
+	: >"$scratch/diff"
+	timeout "$1" "$bin_dir/$2" "${@:3}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
 }
 
-# The time limit of the next scenario; the property run sets its own.
-limit=$RUN_SECONDS
-
-# scenario <name> <exit> <stdout> <stderr> <tool> [args...]
-# One call per scenario, so a new one is one line and every scenario judges
-# the exit status and both streams: none can pass on a partial check.
-scenario() {
-	local name=$1 expected=$2 out_pattern=$3 err_pattern=$4 status=0 problems=''
-	shift 4
-	: >"$scratch/diff"
-	timeout "$limit" "$bin_dir/$1" "${@:2}" >"$scratch/stdout" 2>"$scratch/stderr" || status=$?
-	[[ "$status" -eq "$expected" ]] || problems+=" exit=$status (expected $expected)"
-	stream_as_expected "$scratch/stdout" "$out_pattern" || problems+=' stdout'
-	stream_as_expected "$scratch/stderr" "$err_pattern" || problems+=' stderr'
+# judge <name> <problems> <command...>: counts and prints one result. Both
+# kinds of scenario end here, so a failure always shows the same evidence.
+judge() {
+	local name=$1 problems=$2
+	shift 2
 	if [[ -z "$problems" ]]; then
 		printf 'ok   %s\n' "$name"
 		return 0
@@ -114,6 +100,35 @@ scenario() {
 		printf -- '--- difference from the expected file\n'
 		cat "$scratch/diff"
 	} >&2
+}
+
+# scenario <name> <seconds> <exit> <stdout> <stderr> <tool> [args...]
+# Each stream is a pattern for every line, or EMPTY. One call per scenario, so
+# a new one is one line and every scenario judges the exit status and both
+# streams: none can pass on a partial check. The time limit is an argument, so
+# no scenario runs under a limit that an earlier line left behind.
+scenario() {
+	local name=$1 seconds=$2 expected=$3 out_pattern=$4 err_pattern=$5 status problems=''
+	shift 5
+	run_tool "$seconds" "$@"
+	[[ "$status" -eq "$expected" ]] || problems+=" exit=$status (expected $expected)"
+	stream_matches "$scratch/stdout" "$out_pattern" || problems+=' stdout'
+	stream_matches "$scratch/stderr" "$err_pattern" || problems+=' stderr'
+	judge "$name" "$problems" "$@"
+}
+
+# scenario_exact <name> <exit> <stream> <expected file> <tool> [args...]
+# <stream> (stdout or stderr) must equal the file byte for byte, and the other
+# stream must be empty. A pattern cannot prove a whole screen; a file can.
+scenario_exact() {
+	local name=$1 expected=$2 stream=$3 file=$4 other=stderr status problems=''
+	shift 4
+	[[ "$stream" == stdout ]] || other=stdout
+	run_tool "$RUN_SECONDS" "$@"
+	[[ "$status" -eq "$expected" ]] || problems+=" exit=$status (expected $expected)"
+	diff -u -- "$file" "$scratch/$stream" >"$scratch/diff" 2>&1 || problems+=" $stream"
+	stream_matches "$scratch/$other" "$EMPTY" || problems+=" $other"
+	judge "$name" "$problems" "$@"
 }
 
 # fail <message>: a problem with the scenario files themselves.
@@ -133,10 +148,8 @@ scenario_files() {
 		base=${file%"$SCENARIO_SUFFIX"}
 		if [[ ! -f "$base$EXPECTED_SUFFIX" ]]; then
 			fail "$file has no ${base##*/}$EXPECTED_SUFFIX"
-		elif [[ "$stream" == stdout ]]; then
-			scenario "$file" "$expected" "$SAME_AS$base$EXPECTED_SUFFIX" "$EMPTY" "$SIMULATOR" "$file"
 		else
-			scenario "$file" "$expected" "$EMPTY" "$SAME_AS$base$EXPECTED_SUFFIX" "$SIMULATOR" "$file"
+			scenario_exact "$file" "$expected" "$stream" "$base$EXPECTED_SUFFIX" "$SIMULATOR" "$file"
 		fi
 	done
 	# A folder with no scenario would pass by running nothing.
@@ -147,15 +160,15 @@ scenario_files() {
 	done
 }
 
-scenario "$SIMULATOR --version prints the version" "$EXIT_OK" "$VERSION_LINE" "$EMPTY" "$SIMULATOR" --version
+scenario "$SIMULATOR --version prints the version" "$RUN_SECONDS" "$EXIT_OK" "$VERSION_LINE" "$EMPTY" "$SIMULATOR" --version
 # A tool that ignored a bad command line would let a later scenario pass
 # without running it.
-scenario "$SIMULATOR rejects no argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR"
-scenario "$SIMULATOR rejects an unknown flag" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --no-such-flag
-scenario "$SIMULATOR rejects an extra argument" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --version extra
-scenario "$SIMULATOR rejects a missing scenario file" "$EXIT_NO_INPUT" "$EMPTY" "${SIMULATOR}: .*: cannot read the file" "$SIMULATOR" "$SCENARIO_DIR/no-such-file$SCENARIO_SUFFIX"
-scenario "$SIMULATOR rejects a property run of no steps" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 0
-scenario "$SIMULATOR rejects a seed that is not a number" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 10 --seed x
+scenario "$SIMULATOR rejects no argument" "$RUN_SECONDS" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR"
+scenario "$SIMULATOR rejects an unknown flag" "$RUN_SECONDS" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --no-such-flag
+scenario "$SIMULATOR rejects an extra argument" "$RUN_SECONDS" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --version extra
+scenario "$SIMULATOR rejects a missing scenario file" "$RUN_SECONDS" "$EXIT_NO_INPUT" "$EMPTY" "${SIMULATOR}: .*: cannot read the file" "$SIMULATOR" "$SCENARIO_DIR/no-such-file$SCENARIO_SUFFIX"
+scenario "$SIMULATOR rejects a property run of no steps" "$RUN_SECONDS" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 0
+scenario "$SIMULATOR rejects a seed that is not a number" "$RUN_SECONDS" "$EXIT_USAGE" "$EMPTY" "$USAGE_LINE" "$SIMULATOR" --fuzz 10 --seed x
 
 for name in "${REQUIRED_SCENARIOS[@]}"; do
 	[[ -f "$SCENARIO_DIR/$name$SCENARIO_SUFFIX" ]] || fail "required scenario $name is missing"
@@ -166,11 +179,9 @@ scenario_files "$INVALID_DIR" "$EXIT_DATA" stderr
 # Random inputs with the rules of a sound state checked after each one. The
 # seed is fixed, so the run is the same on every machine and a failure can be
 # replayed. A debug build takes about 11 s for this many steps.
-limit=$FUZZ_SECONDS
-scenario "$SIMULATOR --fuzz $FUZZ_STEPS keeps every rule" "$EXIT_OK" "$FUZZ_LINE" "$EMPTY" "$SIMULATOR" --fuzz "$FUZZ_STEPS"
-limit=$RUN_SECONDS
+scenario "$SIMULATOR --fuzz $FUZZ_STEPS keeps every rule" "$FUZZ_SECONDS" "$EXIT_OK" "$FUZZ_LINE" "$EMPTY" "$SIMULATOR" --fuzz "$FUZZ_STEPS"
 
-scenario "$CONTROL says it has no commands yet" "$EXIT_UNAVAILABLE" "$EMPTY" "${CONTROL}: no commands yet.*" "$CONTROL" query
+scenario "$CONTROL says it has no commands yet" "$RUN_SECONDS" "$EXIT_UNAVAILABLE" "$EMPTY" "${CONTROL}: no commands yet.*" "$CONTROL" query
 
 if [[ "$failures" -gt 0 ]]; then
 	printf '❌ wm-scenarios: %s scenario check(s) failed\n' "$failures" >&2
