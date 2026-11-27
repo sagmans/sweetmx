@@ -1,0 +1,133 @@
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @1*
+frame 1 0 0 1920 1080
+hidden -
+effects 2
+  frame 1 0 0 1920 1080
+  focus 1
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2*)
+frame 1 0 0 960 1080
+frame 2 960 0 960 1080
+hidden -
+effects 3
+  frame 1 0 0 960 1080
+  frame 2 960 0 960 1080
+  focus 2
+
+> create
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2 3*)
+frame 1 0 0 640 1080
+frame 2 640 0 640 1080
+frame 3 1280 0 640 1080
+hidden -
+effects 4
+  frame 1 0 0 640 1080
+  frame 2 640 0 640 1080
+  frame 3 1280 0 640 1080
+  focus 3
+
+> focus left
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2* 3)
+frame 1 0 0 640 1080
+frame 2 640 0 640 1080
+frame 3 1280 0 640 1080
+hidden -
+effects 1
+  focus 2
+
+> resize right 5
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2* 3)
+frame 1 0 0 640 1080
+frame 2 640 0 1152 1080
+frame 3 1792 0 128 1080
+hidden -
+effects 2
+  frame 2 640 0 1152 1080
+  frame 3 1792 0 128 1080
+
+> focus left
+grid 0,0 workspaces 1 zoom 0
+tree @h(1* 2 3)
+frame 1 0 0 640 1080
+frame 2 640 0 1152 1080
+frame 3 1792 0 128 1080
+hidden -
+effects 1
+  focus 1
+
+> resize right -5
+grid 0,0 workspaces 1 zoom 0
+tree @h(1* 2 3)
+frame 1 0 0 128 1080
+frame 2 128 0 1664 1080
+frame 3 1792 0 128 1080
+hidden -
+effects 2
+  frame 1 0 0 128 1080
+  frame 2 128 0 1664 1080
+
+> focus right
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2* 3)
+frame 1 0 0 128 1080
+frame 2 128 0 1664 1080
+frame 3 1792 0 128 1080
+hidden -
+effects 1
+  focus 2
+
+> focus right
+grid 0,0 workspaces 1 zoom 0
+tree @h(1 2 3*)
+frame 1 0 0 128 1080
+frame 2 128 0 1664 1080
+frame 3 1792 0 128 1080
+hidden -
+effects 1
+  focus 3
+
+> send 1 0
+grid 0,0 workspaces 2 zoom 0
+tree @h(1 2*)
+frame 1 0 0 187 1080
+frame 2 187 0 1733 1080
+hidden 3
+effects 4
+  hide 3
+  frame 1 0 0 187 1080
+  frame 2 187 0 1733 1080
+  focus 2
+
+> focus left
+grid 0,0 workspaces 2 zoom 0
+tree @h(1* 2)
+frame 1 0 0 187 1080
+frame 2 187 0 1733 1080
+hidden 3
+effects 1
+  focus 1
+
+> resize right -0.01
+grid 0,0 workspaces 2 zoom 0
+tree @h(1* 2)
+frame 1 0 0 187 1080
+frame 2 187 0 1733 1080
+hidden 3
+effects 0
+
+> resize right 0.01
+grid 0,0 workspaces 2 zoom 0
+tree @h(1* 2)
+frame 1 0 0 206 1080
+frame 2 206 0 1714 1080
+hidden 3
+effects 2
+  frame 1 0 0 206 1080
+  frame 2 206 0 1714 1080
