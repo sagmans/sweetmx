@@ -67,8 +67,8 @@ private struct UninstallResultRow: View {
             path: model.displayPath(result.url),
             fullPath: model.fullPath(result.url),
             detail: model.sentence(for: result),
-            reveal: canReveal ? result.url : nil,
-            model: model
+            onReveal: canReveal ? { model.showInFinder(result.url) } : nil,
+            revealDisabled: model.phase == .moving
         )
         .accessibilityElement(children: .combine)
     }

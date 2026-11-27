@@ -318,6 +318,7 @@ You can restore items until you empty Trash. The sheet says the same:
 | `Sources/SweetMX/UI/UninstallSheetModel.swift` | Every decision of the sheet, without views |
 | `Sources/SweetMX/UI/UninstallSheet.swift` | The confirmation view |
 | `Sources/SweetMX/UI/UninstallResultSheet.swift` | The result view |
+| `Sources/SweetMX/UI/UninstallSheetComponents.swift` | The notice box and the row layout both views share |
 | `Sources/SweetMX/UI/DesignTokens+Uninstall.swift` | The copy and the sizes |
 | `Sources/SweetMX/Shell/LauncherPanel.swift` | The `⌘U` key |
 | `Sources/SweetMX/UI/ResultsList.swift` | The context menu item |
