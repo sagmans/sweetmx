@@ -180,12 +180,17 @@ public struct Gaps: Equatable, Sendable {
 public struct Split: Equatable, Sendable {
     /// The weight of a child in a fresh split. Only the ratio between weights matters.
     static let unitWeight = 1.0
-    /// The smallest part of two neighbors' shared size that a resize leaves to either of them, so
-    /// no resize can make a window vanish.
-    static let minimumPairShare = 0.1
+    /// The smallest weight a resize leaves to a child, as a part of an equal share (the mean
+    /// weight). It is measured against the whole split and not against the two neighbors: a floor
+    /// that follows the pair lets two windows shrink in turn without end.
+    static let minimumShare = 0.2
+    /// The smallest weight a child can have after `settleWeights`, where the mean weight is one:
+    /// raising small weights to `minimumShare` grows the sum by at most that part, and the scale
+    /// back to the mean takes the same part off again.
+    static let settledFloor = minimumShare / (1 + minimumShare)
 
     /// One place in a split. The node and its weight are one value, so no edit can change the
-    /// order of the nodes and leave their sizes behind, and a moved window keeps its size.
+    /// order of the nodes and leave their sizes behind, and a swapped window keeps its size.
     public struct Child: Equatable, Sendable {
         public internal(set) var node: Node
         /// The child's part of the split is its weight over the sum of all weights.

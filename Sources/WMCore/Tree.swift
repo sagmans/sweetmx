@@ -11,17 +11,53 @@ extension Split {
     mutating func insert(_ child: Node, at index: Int) {
         let share = children.isEmpty ? Split.unitWeight : totalWeight / Double(children.count)
         children.insert(Child(node: child, weight: share), at: index)
+        settleWeights()
+    }
+
+    mutating func remove(at index: Int) {
+        children.remove(at: index)
+        settleWeights()
     }
 
     var totalWeight: Double {
         children.reduce(0) { $0 + $1.weight }
     }
 
+    /// Brings the weights back to one scale: a mean of one, and none below the smallest share.
+    ///
+    /// Only the ratios matter to the layout, but the numbers must not drift. Without this, each
+    /// large child that leaves makes the sum smaller, each new child joins at the smaller scale,
+    /// and after some hundred windows every weight is zero and the windows have no area.
+    mutating func settleWeights() {
+        rescale()
+        var raised = false
+        for index in children.indices where children[index].weight < Split.minimumShare {
+            children[index].weight = Split.minimumShare
+            raised = true
+        }
+        if raised {
+            rescale()
+        }
+    }
+
+    private mutating func rescale() {
+        let total = totalWeight
+        // Weights that are not positive numbers are a fault that the state check reports; a scale
+        // made from them would spread the fault to every child.
+        guard total.isFinite, total > 0 else { return }
+        let scale = Double(children.count) / total
+        for index in children.indices {
+            children[index].weight *= scale
+        }
+    }
+
     /// Moves the border between two children. Their combined weight stays the same, so no other
-    /// child moves, and each keeps at least `minimumPairShare` of it.
+    /// child moves, and each keeps at least `minimumShare` of an equal share. Two children that
+    /// are both near that size have nothing to give, and the border stays.
     mutating func grow(_ index: Int, by amount: Double, takingFrom neighbor: Int) {
         let pair = children[index].weight + children[neighbor].weight
-        let floor = pair * Split.minimumPairShare
+        let floor = Split.minimumShare * totalWeight / Double(children.count)
+        guard pair > 2 * floor else { return }
         let wanted = children[index].weight + amount * totalWeight
         let grown = min(max(wanted, floor), pair - floor)
         children[index].weight = grown
@@ -185,13 +221,20 @@ extension Workspace {
         guard var tree = root else { return nil }
         var path = nodePath
         while let index = path.popLast() {
-            var remaining = 0
+            var remaining: Int?
+            // Not `updateSplit`: a split left with one child is replaced by that child.
             tree.update(at: path) { parent in
-                guard var split = parent.split else { return }
-                split.children.remove(at: index)
+                guard var split = parent.split else {
+                    assertionFailure("WMCore: the path of a removal names a window as a parent")
+                    return
+                }
+                split.remove(at: index)
                 remaining = split.children.count
                 parent = remaining == 1 ? split.children[0].node : Node(id: parent.id, content: .split(split))
             }
+            // A fault in the path. The tree stays as it is: one level up, the same index would
+            // remove a window that the caller did not name.
+            guard let remaining else { return nil }
             if remaining > 0 {
                 root = tree
                 return Detachment(heirPath: path, gap: index, hoisted: remaining == 1)

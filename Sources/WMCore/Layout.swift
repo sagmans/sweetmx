@@ -27,20 +27,20 @@ public func layout(_ workspace: Workspace, screenRect: Rect, gaps: Gaps) -> [Win
     let halfInner = gaps.inner / 2
     let screen = Box(screenRect)
     var frames: [WindowFrame] = []
-    place(view, in: screen.inset(by: gaps.outer - halfInner), gaps: (halfInner, screen), into: &frames)
+    place(view, in: screen.inset(by: gaps.outer - halfInner), halfInner: halfInner, limit: screen, into: &frames)
     return frames
 }
 
-/// `gaps.screen` is the limit for every frame. An inner gap larger than twice the outer gap makes
+/// `limit` is the screen, and no frame leaves it. An inner gap larger than twice the outer gap makes
 /// the first box larger than the screen, and a part smaller than the gap closes at its middle,
 /// which can then lie outside the screen. Such a window gets an empty frame at the screen edge.
-private func place(_ node: Node, in box: Box, gaps: (halfInner: Double, screen: Box), into frames: inout [WindowFrame]) {
+private func place(_ node: Node, in box: Box, halfInner: Double, limit: Box, into frames: inout [WindowFrame]) {
     switch node.content {
     case let .window(window):
-        frames.append(WindowFrame(window: window, frame: box.inset(by: gaps.halfInner).clamped(to: gaps.screen).snapped))
+        frames.append(WindowFrame(window: window, frame: box.inset(by: halfInner).clamped(to: limit).snapped))
     case let .split(split):
         for (child, part) in zip(split.children, box.divided(along: split.axis, weights: split.children.map(\.weight))) {
-            place(child.node, in: part, gaps: gaps, into: &frames)
+            place(child.node, in: part, halfInner: halfInner, limit: limit, into: &frames)
         }
     }
 }

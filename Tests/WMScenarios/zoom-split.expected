@@ -43,15 +43,15 @@ hidden 1
 effects 0
 
 > split horizontal
-grid 0,0 workspaces 1 zoom 2
-tree h(1 v(@h(2*)))
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @h(2*))
 frame 2 0 0 1920 1080
 hidden 1
 effects 0
 
 > create
-grid 0,0 workspaces 1 zoom 2
-tree h(1 v(@h(2 3*)))
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @h(2 3*))
 frame 2 0 0 960 1080
 frame 3 960 0 960 1080
 hidden 1
@@ -61,24 +61,24 @@ effects 3
   focus 3
 
 > split vertical
-grid 0,0 workspaces 1 zoom 2
-tree h(1 v(@h(2 v(3*))))
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @h(2 v(3*)))
 frame 2 0 0 960 1080
 frame 3 960 0 960 1080
 hidden 1
 effects 0
 
 > split horizontal
-grid 0,0 workspaces 1 zoom 2
-tree h(1 v(@h(2 h(3*))))
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @h(2 h(3*)))
 frame 2 0 0 960 1080
 frame 3 960 0 960 1080
 hidden 1
 effects 0
 
 > create
-grid 0,0 workspaces 1 zoom 2
-tree h(1 v(@h(2 h(3 4*))))
+grid 0,0 workspaces 1 zoom 1
+tree h(1 @h(2 h(3 4*)))
 frame 2 0 0 960 1080
 frame 3 960 0 480 1080
 frame 4 1440 0 480 1080

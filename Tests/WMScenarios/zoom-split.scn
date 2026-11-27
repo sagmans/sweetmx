@@ -1,15 +1,16 @@
 # A split asked for while one window fills the view. Passes when the next
-# window opens beside the zoomed one on the axis that was asked for, and a
-# second request changes the axis and adds no level.
+# window opens beside the zoomed one on the axis that was asked for, and no
+# request adds a level to the tree.
 create
 create
 split vertical
 zoom in
 zoom in
-# Window 2 is alone in a column that is outside the view.
+# Window 2 is alone in a column that is outside the view. The view moves out
+# to the column, which shows the same window.
 split horizontal
 create
-# Window 3 is now alone in its own split, inside the view.
+# Window 3 gets a split of its own. A second request changes its axis only.
 split vertical
 split horizontal
 create

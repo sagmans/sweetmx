@@ -1,0 +1,9 @@
+# A window grows, leaves and comes back, many times. Passes when the three
+# windows still have an area at the end, no narrower than a fifth of an equal
+# share: the sizes in the tree must not drift toward zero.
+create
+create
+create
+repeat 600 focus left ; resize left 5 ; focus right ; resize left 5 ; send 1 0 ; goto 1 0 ; send 0 0 ; goto 0 0
+# Two windows that give to a third in turn must not shrink without end.
+repeat 600 focus left ; resize right -5 ; focus left ; resize right -5 ; focus right ; focus right

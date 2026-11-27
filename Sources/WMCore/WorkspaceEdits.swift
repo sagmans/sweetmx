@@ -101,14 +101,18 @@ extension Workspace {
     /// `axis`. A window that is already alone in its split only changes that split's axis, so
     /// repeated use cannot build a chain of empty levels.
     ///
-    /// A zoomed window is the exception: its parent is outside the view, and the next window opens
-    /// inside the view. It gets a split of its own, so the axis the user chose is the one used.
+    /// For a zoomed window that split is outside the view, and the next window opens inside the
+    /// view. The view moves out to the split, which shows the same one window, so the axis the
+    /// user chose is the one used.
     mutating func splitFocused(_ axis: Axis, ids: inout NodeIDSource) {
         guard let (root, focusPath, _) = anchors else { return }
         var tree = root
         let parentPath = focusPath.dropLast()
-        if viewRoot != focus, tree.node(at: parentPath)?.split?.children.count == 1 {
+        if let parent = tree.node(at: parentPath), parent.split?.children.count == 1 {
             tree.updateSplit(at: parentPath) { $0.axis = axis }
+            if viewRoot == focus {
+                viewRoot = parent.id
+            }
         } else {
             let wrapper = ids.make()
             tree.update(at: focusPath) { node in

@@ -8,7 +8,8 @@ public enum StateRule: String, CaseIterable, Sendable {
     case windowOnce = "window-once"
     /// `viewRoot` and `focus` name existing nodes, and the focus is a window inside the view.
     case references
-    /// Every split has a child, and each child has a positive, finite weight.
+    /// Every split has a child, and the weights keep one scale: their mean is one and none is
+    /// below the smallest share.
     case splitShape = "split-shape"
     /// The current cell exists, and no other workspace is empty.
     case gridCells = "grid-cells"
@@ -61,6 +62,10 @@ public extension WMState {
 }
 
 extension WMState {
+    /// How far the weights of a split may be from their scale, as a part of it. Each edit leaves a
+    /// rounding error of a few bits; this is far above that and far below any real drift.
+    static let weightTolerance = 1e-9
+
     /// The rules about frames, on their own so they can be checked against any list of frames:
     /// the layout can only break them through a fault, and a checker that was never shown a broken
     /// list could not be trusted to notice one.
@@ -71,7 +76,11 @@ extension WMState {
                 found.append(Violation(rule: .overlap, detail: "windows \(first.window.rawValue) and \(second.window.rawValue) overlap"))
             }
             let frame = first.frame
-            if frame.x < screen.x.rounded() || frame.y < screen.y.rounded() || frame.maxX > screen.maxX.rounded() || frame.maxY > screen.maxY.rounded() {
+            // Every comparison with a value that is not a number is false, so such a frame would
+            // pass the checks below.
+            if ![frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite) {
+                found.append(Violation(rule: .coverage, detail: "window \(first.window.rawValue) has a frame that is not a number"))
+            } else if frame.x < screen.x.rounded() || frame.y < screen.y.rounded() || frame.maxX > screen.maxX.rounded() || frame.maxY > screen.maxY.rounded() {
                 found.append(Violation(rule: .coverage, detail: "window \(first.window.rawValue) leaves the screen"))
             }
         }
@@ -117,8 +126,12 @@ private extension Node {
             if split.children.isEmpty {
                 broken.append("split \(node.id.rawValue) has no child")
             }
-            if !split.children.allSatisfy({ $0.weight.isFinite && $0.weight > 0 }) {
+            let count = Double(split.children.count)
+            let floor = Split.settledFloor * (1 - WMState.weightTolerance)
+            if !split.children.allSatisfy({ $0.weight.isFinite && $0.weight >= floor }) {
                 broken.append("split \(node.id.rawValue) has bad weights")
+            } else if abs(split.totalWeight - count) > count * WMState.weightTolerance {
+                broken.append("split \(node.id.rawValue) has weights that left their scale")
             }
         }
         return broken
@@ -141,6 +154,12 @@ public extension StateRule {
 private enum BrokenExample {
     private static let screen = Rect(x: 0, y: 0, width: 100, height: 100)
     private static let half = Rect(x: 0, y: 0, width: 50, height: 100)
+    /// Half of it lies past the right edge of the screen.
+    private static let aside = Rect(x: 75, y: 0, width: 50, height: 100)
+    private static let notANumber = Rect(x: .nan, y: 0, width: 50, height: 100)
+    /// With gaps the frames need not cover the screen, so an example checked with them proves
+    /// the other frame checks only.
+    private static let someGaps = Gaps(inner: 1, outer: 1)
 
     private static func leaf(_ window: UInt32, node: UInt64) -> Node {
         Node(id: NodeID(node), content: .window(WindowID(window)))
@@ -152,9 +171,11 @@ private enum BrokenExample {
         return state
     }
 
-    private static func row(_ nodes: [Node], firstWeight: Double = Split.unitWeight) -> Workspace {
+    private static func row(_ nodes: [Node], weights: [Double]? = nil) -> Workspace {
         var split = Split(axis: .horizontal, nodes: nodes)
-        split.children[0].weight = firstWeight
+        for (index, weight) in (weights ?? []).enumerated() {
+            split.children[index].weight = weight
+        }
         return Workspace(root: Node(id: NodeID(0), content: .split(split)), viewRoot: NodeID(0), focus: nodes.first?.id)
     }
 
@@ -162,9 +183,13 @@ private enum BrokenExample {
         (.windowOnce, state(row([leaf(1, node: 1), leaf(1, node: 2)])).violations()),
         (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(1), focus: NodeID(9))).violations()),
         (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(9), focus: NodeID(1))).violations()),
-        (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], firstWeight: 0)).violations()),
+        (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], weights: [0, 2])).violations()),
+        (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], weights: [0.5, 0.5])).violations()),
+        (.splitShape, state(Workspace(root: Node(id: NodeID(0), content: .split(Split(axis: .horizontal, nodes: []))), viewRoot: NodeID(0), focus: nil)).violations()),
         (.gridCells, state(Workspace(), extra: [Coord(x: 1, y: 0): Workspace()]).violations()),
         (.overlap, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: screen), WindowFrame(window: WindowID(2), frame: half)], screen: screen, gaps: .none)),
         (.coverage, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: half)], screen: screen, gaps: .none)),
+        (.coverage, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: aside)], screen: screen, gaps: someGaps)),
+        (.coverage, WMState.frameViolations([WindowFrame(window: WindowID(1), frame: notANumber)], screen: screen, gaps: someGaps)),
     ]
 }
