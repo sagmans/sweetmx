@@ -335,6 +335,36 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertTrue(model.fullPath(url).hasPrefix(Path.home + "/Library/Application Support/"))
     }
 
+    /// A parent folder name can carry the override too, and the header path is the person's main check
+    /// of which app goes, so every component is cleaned, in the header, its help text and every row.
+    func testShownPathsCleanEveryFolderName() {
+        let override = "\u{202E}"
+        let appPath = Path.home + "/Applications/Tools" + override + "slooT/Sample.app"
+        world.launcher.show(mode: .applications)
+        let model = UninstallSheetModel(bundlePath: appPath, launcher: world.launcher, dependencies: world.dependencies)
+        let url = URL(fileURLWithPath: appPath)
+
+        XCTAssertEqual(model.displayPath(url), "~/Applications/ToolsslooT/Sample.app")
+        XCTAssertEqual(model.fullPath(url), Path.home + "/Applications/ToolsslooT/Sample.app")
+        XCTAssertFalse(model.appLocation.contains(override))
+        XCTAssertTrue(model.appLocation.contains("~/Applications/ToolsslooT/Sample.app"))
+    }
+
+    /// The home folder is matched before cleaning, so a home name that the cleaning shortens still cuts
+    /// at the right place instead of eating the start of the Library path.
+    func testHomeIsShortenedBeforeCleaning() {
+        let home = "/Users/test\u{200B}user"
+        world.fileSystem.mockHomeDirectory = URL(fileURLWithPath: home)
+        world.launcher.show(mode: .applications)
+        let model = UninstallSheetModel(bundlePath: Path.app, launcher: world.launcher, dependencies: world.dependencies)
+
+        XCTAssertEqual(
+            model.displayPath(URL(fileURLWithPath: home + "/Library/Caches/" + Path.bundleID)),
+            "~/Library/Caches/" + Path.bundleID
+        )
+        XCTAssertEqual(model.displayPath(URL(fileURLWithPath: Path.app)), Path.app)
+    }
+
     func testBlockingNoticeTurnsConfirmOff() async {
         world.addBundleIDItems()
         world.addSystemExtension()

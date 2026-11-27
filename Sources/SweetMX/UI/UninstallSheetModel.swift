@@ -181,20 +181,23 @@ final class UninstallSheetModel {
         )
     }
 
-    /// The bundle path with the home folder shortened to `~`, like the spec's sheet, and the file name
-    /// cleaned as in `fullPath`.
+    /// The path with the home folder shortened to `~`, as Finder and Terminal write it. The home folder
+    /// is matched on the raw components before any cleaning, so the cut never depends on how much the
+    /// cleaning removed; every shown component is then cleaned as in `fullPath`.
     func displayPath(_ url: URL) -> String {
-        let home = library.home.path
-        let path = fullPath(url)
-        guard url.path == home || url.path.hasPrefix(home + Self.pathSeparator) else { return path }
-        return Self.homeAbbreviation + path.dropFirst(home.count)
+        let homeParts = library.home.pathComponents
+        let parts = url.pathComponents
+        guard parts.count >= homeParts.count, Array(parts.prefix(homeParts.count)) == homeParts else { return fullPath(url) }
+        return ([Self.homeAbbreviation] + parts.dropFirst(homeParts.count).map(UninstallTargetResolver.sanitized))
+            .joined(separator: Self.pathSeparator)
     }
 
-    /// The whole path for help text, with its file name through the resolver's cleaning: a file name can
-    /// hold direction or control characters that would make the shown path lie about the item.
+    /// The whole path for help text, every component through the resolver's cleaning: any folder name,
+    /// not only the file name, can hold direction or control characters that would make the shown path
+    /// lie about which item it is, and the header path is the person's main check of which app goes.
     func fullPath(_ url: URL) -> String {
-        let parent = url.deletingLastPathComponent().path
-        return (parent.hasSuffix(Self.pathSeparator) ? parent : parent + Self.pathSeparator) + itemName(url)
+        Self.pathSeparator + url.pathComponents.dropFirst().map(UninstallTargetResolver.sanitized)
+            .joined(separator: Self.pathSeparator)
     }
 
     /// A file's name as the sheets show it, through the resolver's cleaning.
