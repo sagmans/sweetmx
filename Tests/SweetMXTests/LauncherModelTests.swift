@@ -458,7 +458,7 @@ final class LauncherModelTests: XCTestCase {
 
     /// The brief's name is kept. In app mode the key is always consumed, even with nothing highlighted,
     /// so a stray press never types a "u" into the search field; no prompt opens and no state changes.
-    func testCommandUPassesThroughWithoutSelection() throws {
+    func testCommandUIsConsumedWithoutSelection() throws {
         let controller = LauncherController(model: model)
         model.show()
         model.select(-1)
@@ -491,5 +491,61 @@ final class LauncherModelTests: XCTestCase {
         XCTAssertNil(LauncherPanel.launcherKey(for: backspace))
         let commandBackspace = try keyEvent(Self.backspaceKeyCode, characters: "\u{7F}", modifiers: .command)
         XCTAssertNil(LauncherPanel.launcherKey(for: commandBackspace))
+        XCTAssertNotEqual(LauncherPanel.launcherKey(for: commandBackspace), .uninstall(isRepeat: false))
+    }
+
+    func testCommandURepeatIsConsumedAndOpensNothing() throws {
+        let controller = LauncherController(model: model)
+        model.show()
+        model.select(0)
+        XCTAssertNotNil(model.selectedAppPath)
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: 0,
+            context: nil, characters: Self.uninstallCharacter, charactersIgnoringModifiers: Self.uninstallCharacter,
+            isARepeat: true, keyCode: Self.uninstallKeyCode
+        ))
+
+        let key = try XCTUnwrap(LauncherPanel.launcherKey(for: event))
+
+        XCTAssertEqual(key, .uninstall(isRepeat: true))
+        XCTAssertEqual(controller.panel.keyHandler?(key), true)
+        XCTAssertNil(controller.panel.attachedSheet)
+    }
+
+    /// The uninstall key belongs to the search field's editor only; a read-only text view such as the
+    /// clip preview must keep it, unlike the delete key.
+    func testCommandUIsNotRoutedFromReadOnlyTextView() {
+        let readOnly = NSTextView(frame: .zero)
+        readOnly.isEditable = false
+
+        XCTAssertFalse(LauncherPanel.routes(.uninstall(isRepeat: false), firstResponder: readOnly))
+        XCTAssertTrue(LauncherPanel.routes(.deleteClip(isRepeat: false), firstResponder: readOnly))
+    }
+
+    func testSelectedAppPathFollowsSelectionInAppModeOnly() {
+        model.show()
+        XCTAssertGreaterThan(model.apps.rows.count, 1)
+        model.select(0)
+        XCTAssertEqual(model.selectedAppPath, model.apps.rows[0].id)
+        model.select(1)
+        XCTAssertEqual(model.selectedAppPath, model.apps.rows[1].id)
+
+        model.show(mode: .clipboard)
+        XCTAssertNil(model.selectedAppPath)
+    }
+
+    func testSelectAppFindsCurrentIndexOrDoesNothing() {
+        model.show()
+        XCTAssertGreaterThan(model.apps.rows.count, 1)
+        let movedPath = model.apps.rows[1].id
+        model.select(0)
+
+        XCTAssertEqual(model.selectApp(path: movedPath), 1)
+        XCTAssertEqual(model.selectedAppPath, movedPath)
+
+        model.select(-1)
+        XCTAssertNil(model.selectApp(path: "/Applications/Gone.app"))
+        XCTAssertNil(model.selection)
+        XCTAssertNil(model.selectedAppPath)
     }
 }

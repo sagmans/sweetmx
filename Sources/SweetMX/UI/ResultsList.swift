@@ -108,7 +108,7 @@ struct ResultsList: View {
                             .accessibilityIdentifier(DesignTokens.Identifier.applicationRow(index))
                             .accessibilityLabel(Self.rowLabel(title: row.name, subtitle: row.location, index: index, count: model.resultCount))
                             .accessibilityHint(Self.rowHint(for: .applications))
-                            .contextMenu { appMenu(at: index, path: row.id) }
+                            .contextMenu { appMenu(path: row.id) }
                         }
                     case .clipboard:
                         ForEach(clipRows.rows(model.clips.rows, generation: model.clips.rowsGeneration)) { indexed in
@@ -242,11 +242,12 @@ struct ResultsList: View {
         mode == .clipboard ? DesignTokens.Copy.clipRowHint : DesignTokens.Copy.applicationRowHint
     }
 
-    /// Selects the clicked row first, then takes the same path as ⌘U, so the sheet is always for the row
-    /// the person pointed at. The path is captured now, so a search landing meanwhile cannot retarget it.
-    private func appMenu(at index: Int, path: String) -> some View {
+    /// Selects the clicked app first, found by its path at click time, then takes the same path as ⌘U,
+    /// so the highlight and the sheet always name the app the person pointed at.
+    private func appMenu(path: String) -> some View {
         Button(DesignTokens.Copy.uninstallMenu) {
-            model.select(index)
+            // The row may have moved or gone since the menu was drawn; nothing opens for a vanished app.
+            guard model.selectApp(path: path) != nil else { return }
             UninstallPrompt.present(bundlePath: path, for: model, over: ClipboardRemovalPrompt.launcherWindow)
         }
     }

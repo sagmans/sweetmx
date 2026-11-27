@@ -141,12 +141,8 @@ final class LauncherPanel: NSPanel {
             return true
         }
         guard let textView = firstResponder as? NSTextView else { return true }
-        // A read-only preview can still ask for these two, which act on the highlighted row.
-        switch key {
-        case .deleteClip, .uninstall: if !textView.isEditable {
-                return true
-            }
-        default: break
+        if case .deleteClip = key, !textView.isEditable {
+            return true
         }
         return textView.isFieldEditor
     }

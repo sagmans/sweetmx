@@ -441,6 +441,16 @@ final class LauncherModel {
         return selectedRowID as? String
     }
 
+    /// Highlights the row now showing the app at `path` and returns its index, or returns nil and changes
+    /// nothing when that app is no longer listed. A menu chosen after results changed uses it to keep the
+    /// highlight and the prompt on the same app.
+    @discardableResult
+    func selectApp(path: String) -> Int? {
+        guard mode == .applications, let index = apps.rows.firstIndex(where: { $0.id == path }) else { return nil }
+        select(index)
+        return index
+    }
+
     /// A confirmation only applies while its clipboard session is still open.
     func removeClips(_ removal: ClipboardManager.HistoryRemoval) {
         guard isPresented, mode == .clipboard else { return }
