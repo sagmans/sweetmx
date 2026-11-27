@@ -42,14 +42,19 @@ SweetMX/
 │   │   ├── FileSystemProtocol.swift
 │   │   ├── PasteboardProtocol.swift
 │   │   ├── WorkspaceProtocol.swift
+│   │   ├── CodeIdentityProtocol.swift
+│   │   ├── FinderTrashProtocol.swift
 │   │   └── EventSourceProtocol.swift
 │   ├── System/              # Production implementations
 │   │   ├── SystemFileManager.swift
 │   │   ├── SystemPasteboard.swift
 │   │   ├── SystemWorkspace.swift
+│   │   ├── SystemCodeIdentity.swift
+│   │   ├── SystemFinderTrash.swift
 │   │   └── SystemEventSource.swift
 │   ├── Models/              # Observable launcher state (LauncherModel and sub-models)
 │   ├── Shell/               # Panel, controller, and key routing
+│   ├── Uninstall/           # Rules and checks to uninstall an app
 │   ├── UI/                  # SwiftUI views, design tokens, and caches
 │   └── ...                  # Core application files
 │
@@ -66,9 +71,12 @@ SweetMX/
 │   │   ├── MockFileSystem.swift
 │   │   ├── MockPasteboard.swift
 │   │   ├── MockWorkspace.swift
+│   │   ├── MockCodeIdentity.swift
+│   │   ├── MockFinderTrash.swift
 │   │   └── MockEventSource.swift
 │   ├── __Snapshots__/       # Snapshot reference images
-│   │   └── SnapshotTests/   # Per-test-class snapshots
+│   │   ├── SnapshotTests/   # Per-test-class snapshots
+│   │   └── UninstallSheetSnapshotTests/
 │   ├── SearchServiceTests.swift
 │   ├── ApplicationIndexerTests.swift
 │   ├── ClipboardManagerTests.swift
@@ -77,7 +85,8 @@ SweetMX/
 │   ├── SearchFlowIntegrationTests.swift
 │   ├── ClipboardFlowIntegrationTests.swift
 │   ├── SnapshotTests.swift
-│   └── AccessibilityTests.swift
+│   ├── AccessibilityTests.swift
+│   └── Uninstall*Tests.swift    # See "Uninstall Tests" below
 │
 ├── .githooks/
 │   ├── lib/                 # generic checks (copied from the dotf template)
@@ -359,6 +368,85 @@ granted while it had another signature, remove it with **−** and add it again
 with **+** first; turning the switch off and on keeps the old signature.
 
 ---
+
+### Uninstall Tests
+
+The uninstall flow (see [UNINSTALL.md](UNINSTALL.md)) removes things from a
+disk, so its tests follow one rule.
+
+> **Rule:** An uninstall test never touches a real app, the real Trash, the
+> real Finder, or the real home folder. A test uses a mock, or a temporary
+> folder that the test makes and removes. The mock home folder is
+> `/Users/testuser`. No test opens an app such as `Paper.app`.
+
+#### Seams and mocks
+
+Every system call of the flow goes through a protocol. The tests pass these
+mocks, which you find in `Tests/SweetMXTests/Mocks/`.
+
+| Seam | Mock | What the mock lets a test script |
+| ---- | ---- | -------------------------------- |
+| `FileSystemProtocol`: `trashItem`, `isWritableDirectory`, `isSymbolicLink`, `resolvingSymlinks`, `readData`, `allocatedSize` | `MockFileSystem` | The result of each Trash move (`trashItemResults`), writable folders, links, resolved paths, file data and sizes. It records each call. |
+| `WorkspaceProtocol`: `runningApplications(atBundleURL:)`, `revealInFinder`, `open` | `MockWorkspace` | Running apps per bundle path. It records each reveal and each opened page. |
+| `RunningApplicationHandle` | `MockRunningApplication` | `isTerminated`, the answer of `terminate()`, and `terminatesAfterReads` (an app that quits later, with no wait on the clock). `NSRunningApplication` cannot be made in a test. |
+| `CodeIdentityProtocol` | `MockCodeIdentity` | The signed identifier of each bundle. A bundle with no script reads as unsigned. |
+| `FinderTrashProtocol` | `MockFinderTrash` | The outcome per item (`setOutcome`) or for all (`defaultOutcome`). It records each request and its timeout. |
+
+`WorkspaceProtocol` has no force-quit method, so no test can force a quit.
+`UninstallExecutor` takes `quitTimeout` and `quitPollInterval` as parameters.
+Tests pass small values, so a wait runs in milliseconds.
+
+`UninstallPolicy.finderHandOffEnabled` is `false`. The executor takes the value
+as a parameter, so a test runs both settings. `MockFinderTrash` is the only
+way a test reaches the Finder code. `SystemFinderTrash` itself has no
+automated test, because it would drive the real Finder.
+
+#### Test files
+
+| Test File | What It Proves |
+| --------- | -------------- |
+| `UninstallTargetResolverTests.swift` | Which apps SweetMX accepts or refuses: links, system apps, required Apple apps, SweetMX itself, a bad bundle ID or Info.plist. It also proves the identity check and the clean display name. |
+| `RelatedItemScannerTests.swift` | Which Library items the scan lists, which rows it locks, and in which order the lock reasons apply. It also proves the Homebrew cleanup list rules. |
+| `UninstallNoticeTests.swift` | The Homebrew command, the vendor notices, and the blocks for a system extension. A listing error blocks. |
+| `UninstallExecutorTests.swift` | What moves and in which order. It proves the app quit wait, the checks right before each move, and that one failure does not stop the next item. It proves that `removeItem` is never called. |
+| `UninstallExecutorRealFileSystemTests.swift` | The last safety gate on a real temporary folder, where a link in the middle of a path must stop the move. The Trash move is a recording stub. |
+| `SystemUninstallSeamsTests.swift` | The system implementations of the seams (links, permissions, sizes, signatures) on a temporary folder. It never calls the real Trash move. |
+| `UninstallSheetModelTests.swift` | The decisions of the sheet: the two-way choice, `⌘A`, locked rows, the button text, and that only ticked, unlocked rows reach the executor. |
+| `UninstallSheetFixture.swift` | A scripted Mac (one app, its Library items, a cask receipt) that the model tests and the snapshots share. It has no tests. |
+| `UninstallSheetSnapshotTests.swift` | The look of the sheet and the result view, in light and dark. See below. |
+| `LauncherModelTests.swift` | The `⌘U` key: it works in app search only, it ignores a repeat, and it passes through in clipboard mode. |
+
+#### Uninstall sheet snapshots
+
+`UninstallSheetSnapshotTests` renders seven states: app only, all related
+files, many rows, two notices with the administrator line, a blocked app, an
+app that needs an administrator, and a result with one failure. Each state has
+a light and a dark reference. Each test also checks that the sheet is not
+taller than the launcher panel.
+
+The tests use the `launcherSnapshotMode` environment value and the `en_US`
+locale. The fixture pins the sizes. The tests skip when `CI` is `true`.
+The references live here:
+
+```text
+Tests/SweetMXTests/__Snapshots__/UninstallSheetSnapshotTests/{testMethodName}.{light|dark}.png
+```
+
+To record the references again, set `RECORD_SNAPSHOTS` to `1` or `true`:
+
+```bash
+RECORD_SNAPSHOTS=1 swift test --filter UninstallSheetSnapshotTests
+```
+
+Recording rewrites every reference that the filter selects. Record on the
+development Mac, because fonts and colors differ between macOS releases.
+
+1. Run the command above.
+2. Open the changed images. Check that each change is intended, and that the
+   images show no real path or personal data.
+3. Run `swift test --filter UninstallSheetSnapshotTests` without the flag. It
+   must pass.
+4. Commit the new images with the change that caused them.
 
 ## Dependency Injection
 

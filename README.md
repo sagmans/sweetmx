@@ -202,6 +202,9 @@ disk use of the running app. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
   under the pointer. It does not take focus from the app that will receive a
   paste.
 - **Escape Key**: Press `Esc` to dismiss the launcher
+- **Uninstall**: Press `Cmd+U` to uninstall the selected app. It works in app
+  search only. Everything goes to Trash. See
+  [docs/UNINSTALL.md](docs/UNINSTALL.md).
 - **No Dock Icon**: Runs as a background application (LSUIElement style)
 
 ## Project Structure
@@ -213,6 +216,8 @@ disk use of the running app. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
   `ClipboardModel`
 - `Shell/` - `LauncherPanel` (non-activating panel), `LauncherController` (show,
   hide, position), `CopyClipShortcut`
+- `Uninstall/` - Rules for removing an app: which apps and files, notices,
+  and the Trash move
 - `UI/` - SwiftUI views (`LauncherView`, `SearchBar`, `ResultsList`,
   `ClipPreviewPane`, `FooterBar`), `DesignTokens`, icon and image caches
 - `ApplicationIndexer.swift`, `SearchService.swift`, `ClipboardManager.swift`,
