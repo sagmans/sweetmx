@@ -67,6 +67,12 @@ final class LauncherPanel: NSPanel {
     /// Same reason as `deleteClipKey`: the character, not the key code, so remapped layouts still work.
     private static let uninstallKey = "u"
 
+    /// The launcher panel, found by type because SwiftUI menu actions have no handle to their window.
+    /// The clipboard and uninstall row menus both open their sheets over it.
+    static var launcherWindow: NSWindow? {
+        NSApp.windows.first { $0 is LauncherPanel }
+    }
+
     /// Set by the controller. Returning false lets the event continue to the responder chain, so a key
     /// the shell declines still behaves as it would in any window.
     var keyHandler: ((LauncherKey) -> Bool)?

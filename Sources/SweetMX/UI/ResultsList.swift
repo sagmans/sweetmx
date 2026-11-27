@@ -250,7 +250,7 @@ struct ResultsList: View {
             Button(DesignTokens.Copy.uninstallMenu) {
                 // The row may have moved or gone since the menu was drawn; nothing opens for a vanished app.
                 guard model.selectApp(path: path) != nil else { return }
-                UninstallPrompt.present(bundlePath: path, for: model, over: ClipboardRemovalPrompt.launcherWindow)
+                UninstallPrompt.present(bundlePath: path, for: model, over: LauncherPanel.launcherWindow)
             }
         }
     }
@@ -260,10 +260,10 @@ struct ResultsList: View {
     private func menu(for id: UUID) -> some View {
         Button(DesignTokens.Copy.copyClip) { model.copyClip(id: id) }
         Button(DesignTokens.Copy.deleteClipMenu) {
-            ClipboardRemovalPrompt.present(.item(id), for: model, over: ClipboardRemovalPrompt.launcherWindow)
+            ClipboardRemovalPrompt.present(.item(id), for: model, over: LauncherPanel.launcherWindow)
         }
         Button(DesignTokens.Copy.clearHistoryMenu) {
-            ClipboardRemovalPrompt.present(.all, for: model, over: ClipboardRemovalPrompt.launcherWindow)
+            ClipboardRemovalPrompt.present(.all, for: model, over: LauncherPanel.launcherWindow)
         }
     }
 }

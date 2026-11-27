@@ -53,50 +53,33 @@ enum UninstallPrompt {
 
     /// Hosts the sheet the same way as the clipboard prompt: glass, no title bar, never main.
     private static func show(_ sheetModel: UninstallSheetModel, title: String, over window: NSWindow) -> Bool {
-        let sheet = ConfirmationSheetPanel(
-            contentRect: .zero,
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let sheet = ConfirmationSheetPanel.present(
+            rootView: UninstallSheetView(model: sheetModel),
+            over: window,
+            prepare: { sheet in
+                // Hidden on screen, but VoiceOver announces it when the sheet takes focus.
+                sheet.title = title
+                sheet.setAccessibilityLabel(title)
+                sheet.canCancel = { [weak sheetModel] in sheetModel?.canCancel ?? true }
+                sheetModel.onSizeChange = { [weak sheet] size in fit(sheet, to: size) }
+                sheetModel.onTitleChange = { [weak sheet] newTitle in
+                    sheet?.title = newTitle
+                    sheet?.setAccessibilityLabel(newTitle)
+                }
+                sheetModel.onClose = { [weak sheet] in
+                    guard let sheet, let parent = sheet.sheetParent else { return }
+                    parent.endSheet(sheet, returnCode: .cancel)
+                }
+            },
+            keyHandler: { [weak sheetModel] event, _ in
+                guard let sheetModel else { return false }
+                return handle(event, model: sheetModel)
+            },
+            onEnd: { sheetModel.sheetDidClose() }
         )
-        sheet.titleVisibility = .hidden
-        sheet.titlebarAppearsTransparent = true
-        sheet.isOpaque = false
-        sheet.backgroundColor = .clear
-        sheet.isMovable = false
-        sheet.isReleasedWhenClosed = false
-        // Hidden on screen, but VoiceOver announces it when the sheet takes focus.
-        sheet.title = title
-        sheet.setAccessibilityLabel(title)
-        sheet.canCancel = { [weak sheetModel] in sheetModel?.canCancel ?? true }
-
-        let host = NSHostingView(rootView: UninstallSheetView(model: sheetModel))
-        let glass = NSGlassEffectView()
-        glass.contentView = host
-        sheet.contentView = glass
-        sheet.setContentSize(host.fittingSize)
-
-        sheetModel.onSizeChange = { [weak sheet] size in fit(sheet, to: size) }
-        sheetModel.onTitleChange = { [weak sheet] newTitle in
-            sheet?.title = newTitle
-            sheet?.setAccessibilityLabel(newTitle)
-        }
-        sheetModel.onClose = { [weak sheet] in
-            guard let sheet, let parent = sheet.sheetParent else { return }
-            parent.endSheet(sheet, returnCode: .cancel)
-        }
-
-        guard let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak sheet, weak sheetModel] event in
-            guard let sheet, let sheetModel, event.window === sheet else { return event }
-            return handle(event, model: sheetModel) ? nil : event
-        }) else {
+        guard sheet != nil else {
             logger.error("Could not install the keyboard monitor for the uninstall sheet")
             return false
-        }
-
-        window.beginSheet(sheet) { _ in
-            NSEvent.removeMonitor(monitor)
-            sheetModel.sheetDidClose()
         }
         return true
     }

@@ -60,58 +60,41 @@ enum ClipboardRemovalPrompt {
 
     /// One focused red destructive action keeps keyboard deletion quick while clearly signalling irreversibility.
     private static func presentSingleClip(_ id: UUID, for model: LauncherModel, over window: NSWindow) {
-        let sheet = ConfirmationSheetPanel(
-            contentRect: .zero,
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        sheet.titleVisibility = .hidden
-        sheet.titlebarAppearsTransparent = true
-        sheet.isOpaque = false
-        sheet.backgroundColor = .clear
-        sheet.isMovable = false
-        sheet.isReleasedWhenClosed = false
-
+        // Filled once the sheet opens; no click or key can reach the button before that.
+        weak var presented: ConfirmationSheetPanel?
         var didConfirm = false
-        let confirm: () -> Void = { [weak sheet, weak model] in
+        let confirm: () -> Void = { [weak model] in
             // Guard against a second click or key event while the sheet dismissal animation runs.
-            guard !didConfirm, let sheet, let parent = sheet.sheetParent else { return }
+            guard !didConfirm, let sheet = presented, let parent = sheet.sheetParent else { return }
             didConfirm = true
             // Drop the clip immediately upon confirmation instead of waiting for the sheet close animation.
             model?.removeClips(.item(id))
             parent.endSheet(sheet, returnCode: .alertFirstButtonReturn)
         }
 
-        let host = NSHostingView(rootView: SingleClipConfirmationView(onConfirm: confirm))
-        let glass = NSGlassEffectView()
-        glass.contentView = host
-        sheet.contentView = glass
-        sheet.setContentSize(host.fittingSize)
-
         // A buttonless Cancel needs its own Escape handling, and both Return keys must ignore repeats.
-        guard let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak sheet] event in
-            guard let sheet, event.window === sheet, let parent = sheet.sheetParent else { return event }
-            switch event.keyCode {
-            case LauncherKeyCode.escape:
-                parent.endSheet(sheet, returnCode: .cancel)
-                return nil
-            case LauncherKeyCode.returnKey, LauncherKeyCode.keypadEnter:
-                // A Return held before opening the sheet must not confirm it.
-                guard !event.isARepeat else { return nil }
-                guard event.modifierFlags.isDisjoint(with: CopyClipShortcut.relevantModifiers) else { return event }
-                confirm()
-                return nil
-            default:
-                return event
+        presented = ConfirmationSheetPanel.present(
+            rootView: SingleClipConfirmationView(onConfirm: confirm),
+            over: window,
+            keyHandler: { event, sheet in
+                guard let parent = sheet.sheetParent else { return false }
+                switch event.keyCode {
+                case LauncherKeyCode.escape:
+                    parent.endSheet(sheet, returnCode: .cancel)
+                    return true
+                case LauncherKeyCode.returnKey, LauncherKeyCode.keypadEnter:
+                    // A Return held before opening the sheet must not confirm it.
+                    guard !event.isARepeat else { return true }
+                    guard event.modifierFlags.isDisjoint(with: CopyClipShortcut.relevantModifiers) else { return false }
+                    confirm()
+                    return true
+                default:
+                    return false
+                }
             }
-        }) else {
+        )
+        if presented == nil {
             logger.error("Could not install the keyboard monitor for single-clip confirmation")
-            return
-        }
-
-        window.beginSheet(sheet) { _ in
-            NSEvent.removeMonitor(monitor)
         }
     }
 
@@ -129,11 +112,5 @@ enum ClipboardRemovalPrompt {
             guard response == .alertSecondButtonReturn else { return }
             model?.removeClips(.all)
         }
-    }
-
-    /// The launcher panel, found by type because SwiftUI menu actions have no handle to their window.
-    @MainActor
-    static var launcherWindow: NSWindow? {
-        NSApp.windows.first { $0 is LauncherPanel }
     }
 }
