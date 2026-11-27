@@ -1,6 +1,24 @@
 import AppKit
 @testable import SweetMX
 
+/// A running app a test can script, because `NSRunningApplication` cannot be created in a test.
+final class MockRunningApplication: RunningApplicationHandle {
+    var isTerminated: Bool
+    /// What `terminate()` answers.
+    var terminateResult: Bool
+    private(set) var terminateCallCount = 0
+
+    init(isTerminated: Bool = false, terminateResult: Bool = true) {
+        self.isTerminated = isTerminated
+        self.terminateResult = terminateResult
+    }
+
+    func terminate() -> Bool {
+        terminateCallCount += 1
+        return terminateResult
+    }
+}
+
 /// Mock implementation of WorkspaceProtocol for testing
 final class MockWorkspace: WorkspaceProtocol {
     var frontmostApplication: NSRunningApplication?
@@ -16,7 +34,16 @@ final class MockWorkspace: WorkspaceProtocol {
     /// Whether openApplication should call completion handler immediately (sync) or asynchronously
     var callCompletionSynchronously: Bool = true
 
+    /// Running apps per bundle path; a bundle that is absent here has none.
+    var runningApplicationsByBundlePath: [String: [MockRunningApplication]] = [:]
+
     // MARK: - Invocation Tracking
+
+    /// Bundle URLs asked about by `runningApplications(atBundleURL:)`.
+    var runningApplicationsCalls: [URL] = []
+
+    /// URLs passed to `revealInFinder`.
+    var revealInFinderCalls: [URL] = []
 
     /// Recorded openApplication calls
     struct OpenApplicationCall {
@@ -50,11 +77,22 @@ final class MockWorkspace: WorkspaceProtocol {
         }
     }
 
+    func runningApplications(atBundleURL url: URL) -> [any RunningApplicationHandle] {
+        runningApplicationsCalls.append(url)
+        return runningApplicationsByBundlePath[url.path] ?? []
+    }
+
+    func revealInFinder(_ url: URL) {
+        revealInFinderCalls.append(url)
+    }
+
     // MARK: - Helper Methods
 
     /// Clears all recorded invocations
     func resetInvocations() {
         openApplicationCalls = []
+        runningApplicationsCalls = []
+        revealInFinderCalls = []
     }
 
     /// Returns the last application URL that was opened

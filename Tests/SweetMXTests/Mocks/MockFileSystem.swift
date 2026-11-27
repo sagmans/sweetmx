@@ -95,6 +95,48 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_removeItemError }
     }
 
+    /// Scripted outcome of `trashItem` per path; a path that is absent here is trashed and lands in `defaultTrashURL`.
+    private var _trashItemResults: [String: Result<URL?, Error>] = [:]
+    var trashItemResults: [String: Result<URL?, Error>] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _trashItemResults }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_trashItemResults }
+    }
+
+    /// Where an unscripted `trashItem` reports the item landed.
+    private var _defaultTrashURL: URL? = URL(fileURLWithPath: "/Users/testuser/.Trash/trashed")
+    var defaultTrashURL: URL? {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _defaultTrashURL }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_defaultTrashURL }
+    }
+
+    /// Paths that answer true to `isWritableDirectory`.
+    private var _writableDirectories: Set<String> = []
+    var writableDirectories: Set<String> {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _writableDirectories }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_writableDirectories }
+    }
+
+    /// Paths that answer true to `isSymbolicLink`.
+    private var _symbolicLinks: Set<String> = []
+    var symbolicLinks: Set<String> {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _symbolicLinks }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_symbolicLinks }
+    }
+
+    /// Resolved location per path; a path that is absent here resolves to itself.
+    private var _resolvedPaths: [String: URL] = [:]
+    var resolvedPaths: [String: URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _resolvedPaths }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_resolvedPaths }
+    }
+
+    /// Size per path; a path that is absent here is unreadable (nil). `allocatedSizeLimits` records the limit asked for.
+    private var _allocatedSizes: [String: Int64] = [:]
+    var allocatedSizes: [String: Int64] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _allocatedSizes }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_allocatedSizes }
+    }
+
     // MARK: - Invocation Tracking
 
     private var _copyItemCalls: [(source: URL, destination: URL)] = []
@@ -155,6 +197,36 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
     var urlsCalls: [(directory: FileManager.SearchPathDirectory, domainMask: FileManager.SearchPathDomainMask)] {
         _read { stateLock.lock(); defer { stateLock.unlock() }; yield _urlsCalls }
         _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_urlsCalls }
+    }
+
+    private var _trashItemCalls: [URL] = []
+    var trashItemCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _trashItemCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_trashItemCalls }
+    }
+
+    private var _isWritableDirectoryCalls: [URL] = []
+    var isWritableDirectoryCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _isWritableDirectoryCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_isWritableDirectoryCalls }
+    }
+
+    private var _isSymbolicLinkCalls: [URL] = []
+    var isSymbolicLinkCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _isSymbolicLinkCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_isSymbolicLinkCalls }
+    }
+
+    private var _resolvingSymlinksCalls: [URL] = []
+    var resolvingSymlinksCalls: [URL] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _resolvingSymlinksCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_resolvingSymlinksCalls }
+    }
+
+    private var _allocatedSizeCalls: [(url: URL, limit: Int)] = []
+    var allocatedSizeCalls: [(url: URL, limit: Int)] {
+        _read { stateLock.lock(); defer { stateLock.unlock() }; yield _allocatedSizeCalls }
+        _modify { stateLock.lock(); defer { stateLock.unlock() }; yield &_allocatedSizeCalls }
     }
 
     // MARK: - FileSystemProtocol Implementation
@@ -296,6 +368,54 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         }
     }
 
+    func trashItem(at url: URL) throws -> URL? {
+        try withStateLock {
+            _trashItemCalls.append(url)
+            guard let result = _trashItemResults[url.path] else {
+                clearItem(at: url.path)
+                return _defaultTrashURL
+            }
+            let trashURL = try result.get()
+            clearItem(at: url.path)
+            return trashURL
+        }
+    }
+
+    func isWritableDirectory(at url: URL) -> Bool {
+        withStateLock {
+            _isWritableDirectoryCalls.append(url)
+            return _writableDirectories.contains(url.path)
+        }
+    }
+
+    func isSymbolicLink(at url: URL) -> Bool {
+        withStateLock {
+            _isSymbolicLinkCalls.append(url)
+            return _symbolicLinks.contains(url.path)
+        }
+    }
+
+    func resolvingSymlinks(_ url: URL) -> URL {
+        withStateLock {
+            _resolvingSymlinksCalls.append(url)
+            return _resolvedPaths[url.path] ?? url
+        }
+    }
+
+    func allocatedSize(at url: URL, limit: Int) -> Int64? {
+        withStateLock {
+            _allocatedSizeCalls.append((url: url, limit: limit))
+            return _allocatedSizes[url.path]
+        }
+    }
+
+    /// Forgets an item that left its place; caller must hold `stateLock`.
+    private func clearItem(at path: String) {
+        _existingFiles[path] = nil
+        _directoryFlags[path] = nil
+        _itemKinds[path] = nil
+    }
+
     /// Mirrors the source flags onto the destination; caller must hold `stateLock`.
     private func placeItem(from source: String, to destination: String) {
         _existingFiles[destination] = true
@@ -314,6 +434,11 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
         contentsAtPathCalls = []
         createFileCalls = []
         urlsCalls = []
+        trashItemCalls = []
+        isWritableDirectoryCalls = []
+        isSymbolicLinkCalls = []
+        resolvingSymlinksCalls = []
+        allocatedSizeCalls = []
     }
 
     /// Adds a file to the mock file system

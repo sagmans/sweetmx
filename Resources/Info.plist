@@ -24,6 +24,8 @@
     <string>26.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>SweetMX asks Finder to move an app to Trash when your account needs an administrator to do it.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSSupportsAutomaticTermination</key>

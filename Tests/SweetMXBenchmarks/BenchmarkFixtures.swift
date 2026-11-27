@@ -119,6 +119,27 @@ final nonisolated class SandboxFileSystem: FileSystemProtocol, @unchecked Sendab
         try system.removeItem(at: url)
     }
 
+    func trashItem(at url: URL) throws -> URL? {
+        try requireInside(url)
+        return try system.trashItem(at: url)
+    }
+
+    func isWritableDirectory(at url: URL) -> Bool {
+        inside(url.path) && system.isWritableDirectory(at: url)
+    }
+
+    func isSymbolicLink(at url: URL) -> Bool {
+        inside(url.path) && system.isSymbolicLink(at: url)
+    }
+
+    func resolvingSymlinks(_ url: URL) -> URL {
+        system.resolvingSymlinks(url)
+    }
+
+    func allocatedSize(at url: URL, limit: Int) -> Int64? {
+        inside(url.path) ? system.allocatedSize(at: url, limit: limit) : nil
+    }
+
     /// Fails closed: a write that escapes the sandbox is a benchmark bug, never something to allow.
     private func requireInside(_ url: URL) throws {
         guard inside(url.path) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }

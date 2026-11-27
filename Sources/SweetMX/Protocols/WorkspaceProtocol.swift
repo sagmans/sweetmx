@@ -1,5 +1,18 @@
 import AppKit
 
+/// The part of a running app that uninstall needs: whether it is gone and a polite quit request.
+///
+/// `NSRunningApplication` cannot be created in a test, so the protocol gives mocks something they can build.
+public protocol RunningApplicationHandle {
+    /// True once the app has quit, so the flow can stop waiting.
+    var isTerminated: Bool { get }
+
+    /// Ask the app to quit; false when the request was not delivered.
+    func terminate() -> Bool
+}
+
+extension NSRunningApplication: RunningApplicationHandle {}
+
 /// Protocol abstracting NSWorkspace operations for testability
 public protocol WorkspaceProtocol {
     /// Identify the app that owns focus before SweetMX activates.
@@ -11,4 +24,10 @@ public protocol WorkspaceProtocol {
     ///   - configuration: The configuration options for opening the application
     ///   - completionHandler: A closure called when the operation completes
     func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: (@Sendable (NSRunningApplication?, Error?) -> Void)?)
+
+    /// Find the processes that run from one bundle, so uninstall can quit them before it removes the app.
+    func runningApplications(atBundleURL url: URL) -> [any RunningApplicationHandle]
+
+    /// Leave the item visible in Finder when SweetMX cannot remove it itself.
+    func revealInFinder(_ url: URL)
 }

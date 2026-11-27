@@ -10,6 +10,7 @@ public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked
     private let applicationPackageTypeKey = "CFBundlePackageType"
     private let applicationPackageType = "APPL"
     private let searchFolderKeys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isSymbolicLinkKey]
+    private let sizeKeys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
 
     public init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -83,6 +84,49 @@ public final nonisolated class SystemFileManager: FileSystemProtocol, @unchecked
 
     public func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
         try data.write(to: url, options: options)
+    }
+
+    public func trashItem(at url: URL) throws -> URL? {
+        var resulting: NSURL?
+        try fileManager.trashItem(at: url, resultingItemURL: &resulting)
+        return resulting as URL?
+    }
+
+    public func isWritableDirectory(at url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue && fileManager.isWritableFile(atPath: url.path)
+    }
+
+    public func isSymbolicLink(at url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true
+    }
+
+    public func resolvingSymlinks(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath()
+    }
+
+    public func allocatedSize(at url: URL, limit: Int) -> Int64? {
+        var failed = false
+        // The enumerator does not follow links, so a link inside the app counts as itself only.
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: sizeKeys, options: [], errorHandler: { _, _ in
+            failed = true
+            return false
+        }) else { return nil }
+
+        var total = allocatedBytes(of: url) ?? 0
+        var visited = 0
+        while let entry = enumerator.nextObject() as? URL {
+            visited += 1
+            guard visited <= limit else { return nil }
+            total += allocatedBytes(of: entry) ?? 0
+        }
+        return failed ? nil : total
+    }
+
+    private func allocatedBytes(of url: URL) -> Int64? {
+        guard let values = try? url.resourceValues(forKeys: Set(sizeKeys)) else { return nil }
+        return (values.totalFileAllocatedSize ?? values.fileAllocatedSize).map(Int64.init)
     }
 }
 

@@ -15,4 +15,12 @@ public final class SystemWorkspace: WorkspaceProtocol {
     public func openApplication(at applicationURL: URL, configuration: NSWorkspace.OpenConfiguration, completionHandler: (@Sendable (NSRunningApplication?, Error?) -> Void)?) {
         workspace.openApplication(at: applicationURL, configuration: configuration, completionHandler: completionHandler)
     }
+
+    public func runningApplications(atBundleURL url: URL) -> [any RunningApplicationHandle] {
+        NSWorkspace.shared.runningApplications.filter { $0.bundleURL?.standardizedFileURL == url.standardizedFileURL }
+    }
+
+    public func revealInFinder(_ url: URL) {
+        workspace.activateFileViewerSelecting([url])
+    }
 }

@@ -381,6 +381,26 @@ private final nonisolated class NonDirectoryCopyFileSystem: FileSystemProtocol, 
         try base.removeItem(at: url)
     }
 
+    func trashItem(at url: URL) throws -> URL? {
+        try base.trashItem(at: url)
+    }
+
+    func isWritableDirectory(at url: URL) -> Bool {
+        base.isWritableDirectory(at: url)
+    }
+
+    func isSymbolicLink(at url: URL) -> Bool {
+        base.isSymbolicLink(at: url)
+    }
+
+    func resolvingSymlinks(_ url: URL) -> URL {
+        base.resolvingSymlinks(url)
+    }
+
+    func allocatedSize(at url: URL, limit: Int) -> Int64? {
+        base.allocatedSize(at: url, limit: limit)
+    }
+
     func copyItem(at source: URL, to destination: URL) throws {
         try base.copyItem(at: source, to: destination)
         base.itemKinds[destination.path] = .other

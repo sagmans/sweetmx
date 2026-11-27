@@ -72,6 +72,24 @@ public nonisolated protocol FileSystemProtocol: Sendable {
 
     /// Discard a partial copy; an item that is already gone is not an error.
     func removeItem(at url: URL) throws
+
+    /// The only removal path for app uninstall: the item goes to the Trash, so a person can put it
+    /// back. Returns where it landed, or nil when the system does not say.
+    func trashItem(at url: URL) throws -> URL?
+
+    /// Decide up front whether a plain Trash move can work, so the flow can pick the Finder route
+    /// (which may ask for a password) before it tries and fails.
+    func isWritableDirectory(at url: URL) -> Bool
+
+    /// Refuse to act on a link, because a link can point the removal at something else.
+    func isSymbolicLink(at url: URL) -> Bool
+
+    /// Compare locations by what they really are, not by the path text a caller built.
+    func resolvingSymlinks(_ url: URL) -> URL
+
+    /// Show how much disk an item uses without scanning a huge tree. `limit` is the most directory
+    /// entries to visit; the result is nil past it or when something is unreadable.
+    func allocatedSize(at url: URL, limit: Int) -> Int64?
 }
 
 /// Extension to provide default implementations for overloaded methods
