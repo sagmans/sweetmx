@@ -98,6 +98,17 @@ final class MockWorkspace: WorkspaceProtocol {
         return runningApplicationsByBundlePath[url.path] ?? []
     }
 
+    /// Copies the system knows per bundle ID; an ID that is absent here has none.
+    var applicationURLsByBundleID: [String: [URL]] = [:]
+
+    /// Bundle IDs asked about by `urlsForApplications(withBundleIdentifier:)`.
+    var urlsForApplicationsCalls: [String] = []
+
+    func urlsForApplications(withBundleIdentifier bundleID: String) -> [URL] {
+        urlsForApplicationsCalls.append(bundleID)
+        return applicationURLsByBundleID[bundleID] ?? []
+    }
+
     func revealInFinder(_ url: URL) {
         revealInFinderCalls.append(url)
     }
@@ -117,6 +128,7 @@ final class MockWorkspace: WorkspaceProtocol {
         runningApplicationsCalls = []
         revealInFinderCalls = []
         openCalls = []
+        urlsForApplicationsCalls = []
     }
 
     /// Returns the last application URL that was opened

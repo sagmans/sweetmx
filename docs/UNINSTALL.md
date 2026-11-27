@@ -119,8 +119,8 @@ SweetMX also finds some rows in two other ways:
 
 - **Matched by name.** A folder in `Application Support`, `Caches` or `Logs`
   that has the same name as the app. SweetMX offers it only when the name has
-  at least four characters and no other installed app has that name.
-  Otherwise the row is locked.
+  at least four characters and no other installed app has that name, either
+  as its Finder name or as its file name. Otherwise the row is locked.
 - **Listed by Homebrew.** The cleanup list of the Homebrew receipt (the `zap`
   entries). SweetMX reads only paths that point one level inside the folders
   in the table, without wildcards and without `..`. You can tick such a row
@@ -137,7 +137,7 @@ A locked row stays on your Mac. The row shows the reason. It also has a
 | Reason shown | Why SweetMX locks the row |
 | ------------ | ------------------------- |
 | The app’s signature does not confirm which files are its own. | The code signature of the app does not match its bundle ID. SweetMX cannot prove who owns the files. |
-| Another copy of this app uses these files. | A similar app has the same bundle ID, or SweetMX cannot read its ID. Removal could break that app. |
+| Another copy of this app uses these files. | Another app has the same bundle ID, under any name, or SweetMX cannot read its ID. SweetMX reads the ID of every other app in the list and asks macOS for every copy it knows, also outside the app folders. Removal could break that app. |
 | Protected by macOS. | The row is in a sandbox folder. macOS guards these folders. SweetMX shows them but never opens them. |
 | SweetMX has not finished listing your apps, so it cannot tell whether another app uses these files. | The app list is not ready. SweetMX cannot rule out a second copy. |
 | Matches the app name only. Another app can use the same name. | The name is short, or another app has the same name. |
@@ -336,8 +336,11 @@ after it.
    signature and sets `identityConfirmed`.
 2. `HomebrewReceipt.find` accepts one receipt only when the Caskroom links to
    this exact copy.
-3. `RelatedItemScanner` lists the related files. Each row goes through one
-   gate that refuses links and items that live elsewhere. The lock order is:
+3. `RelatedItemScanner` lists the related files. A second copy is any other
+   listed app with the same bundle ID, or any copy that
+   `WorkspaceProtocol.urlsForApplications(withBundleIdentifier:)` reports at
+   another path. Each row goes through one gate that refuses links and items
+   that live elsewhere. The lock order is:
    identity, second copy, protected by macOS, app list not ready, name not
    certain.
 4. `UninstallNotice` adds the Homebrew, vendor and blocking notices.

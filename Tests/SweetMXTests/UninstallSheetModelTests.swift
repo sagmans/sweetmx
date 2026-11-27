@@ -401,6 +401,22 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.isLocked), [false])
     }
 
+    /// A copy outside the index roots is found only by asking the system for the bundle ID, and it still
+    /// shares every file, so no row stays tickable.
+    func testCopyKnownOnlyToTheSystemLocksEveryRow() async {
+        world.addBundleIDItems()
+        world.workspace.applicationURLsByBundleID[Path.bundleID] = [
+            world.appURL, URL(fileURLWithPath: "/Users/testuser/Downloads/Sample.app"),
+        ]
+
+        let model = await world.loadedModel()
+
+        XCTAssertEqual(world.workspace.urlsForApplicationsCalls, [Path.bundleID])
+        XCTAssertEqual(model.rows.count, 2)
+        XCTAssertTrue(model.rows.allSatisfy { $0.item.lock == .secondCopyInstalled })
+        XCTAssertFalse(model.canChoose)
+    }
+
     // MARK: - Words
 
     func testSizesFollowTheInjectedLocale() async {

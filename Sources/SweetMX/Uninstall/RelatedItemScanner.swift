@@ -96,26 +96,31 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// `installedApps` is the app index, to detect a shared name or bundle ID; when it is unknown, the
-    /// scan fails closed and locks every row it would otherwise offer.
-    func scan(_ target: UninstallTarget, installedApps: InstalledApps, homebrew: HomebrewReceipt?) -> [RelatedItem] {
+    /// scan fails closed and locks every row it would otherwise offer. `registeredCopies` is what the
+    /// system knows under the target's bundle ID, which also covers copies the index never sees
+    /// (Downloads, an external disk).
+    func scan(
+        _ target: UninstallTarget, installedApps: InstalledApps, registeredCopies: [URL], homebrew: HomebrewReceipt?
+    ) -> [RelatedItem] {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
         let library = URL(fileURLWithPath: fileSystem.homeDirectoryForCurrentUser.path)
             .appendingPathComponent(Self.libraryFolder)
+        let ownPath = Self.standardPath(target.bundleURL.path)
+        let registeredSecondCopy = registeredCopies.contains { Self.standardPath($0.path) != ownPath }
         let secondCopy: Bool
         let nameIsCertain: Bool
         let listIsReady: Bool
         switch installedApps {
         case .unknown:
-            secondCopy = false
+            secondCopy = registeredSecondCopy
             nameIsCertain = false
             listIsReady = false
         case let .listed(apps):
             listIsReady = true
-            let ownPath = Self.standardPath(target.bundleURL.path)
             let others = apps.filter { Self.standardPath($0.bundlePath) != ownPath }
-            secondCopy = hasSecondCopy(of: target, among: others)
+            secondCopy = registeredSecondCopy || hasSecondCopy(of: target, among: others)
             nameIsCertain = target.displayName.count >= Self.minimumNameLength
-                && !others.contains { $0.name.caseInsensitiveCompare(target.displayName) == .orderedSame }
+                && !others.contains { Self.sharesName($0, with: target.displayName) }
         }
 
         var candidates = bundleIDCandidates(target, library: library)
@@ -164,7 +169,8 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// One spelling per bundle path, so `/Applications/./X.app` and `/Applications/X.app` count as the
-    /// same app. Shared with the sheet, which checks that the index lists the target.
+    /// same app, in the index and in the system's answer alike. Shared with the sheet, which checks
+    /// that the index lists the target.
     static func standardPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
     }
@@ -180,20 +186,23 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// A second install with the same bundle ID shares every file, so removing one app's data would
-    /// break the other; only apps that look alike are read, because nothing else can share the ID.
-    /// Fails closed when the other app's ID cannot be read.
+    /// break the other. Every other indexed app is read, because a copy can carry any file name and
+    /// any Finder name (`Xcode-beta.app` beside `Xcode.app`). Fails closed when an ID cannot be read.
     private func hasSecondCopy(of target: UninstallTarget, among others: [ApplicationInfo]) -> Bool {
-        let fileName = target.bundleURL.lastPathComponent
-        return others.contains { app in
-            let sameName = app.name.caseInsensitiveCompare(target.displayName) == .orderedSame
-            let sameFile = (app.bundlePath as NSString).lastPathComponent.caseInsensitiveCompare(fileName) == .orderedSame
-            guard sameName || sameFile else { return false }
+        others.contains { app in
             // An unreadable ID cannot be ruled out, so it counts as shared.
             let otherID = UninstallTargetResolver.bundleID(
                 ofBundleAt: URL(fileURLWithPath: app.bundlePath), fileSystem: fileSystem
             )
             return otherID == nil || otherID == target.bundleID
         }
+    }
+
+    /// The target's name comes from its Info.plist, while the index lists Finder's name, which usually
+    /// follows the file name; either one matching makes a name row uncertain.
+    private static func sharesName(_ app: ApplicationInfo, with name: String) -> Bool {
+        let fileName = URL(fileURLWithPath: app.bundlePath).deletingPathExtension().lastPathComponent
+        return [app.name, fileName].contains { $0.caseInsensitiveCompare(name) == .orderedSame }
     }
 
     /// Folders that macOS guards are checked by name only and never listed; every other folder is

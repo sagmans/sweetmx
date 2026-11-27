@@ -60,9 +60,12 @@ final class RelatedItemScannerTests: XCTestCase {
     private func scan(
         _ target: UninstallTarget,
         others: [ApplicationInfo] = [],
+        copies: [URL] = [],
         homebrew: HomebrewReceipt? = nil
     ) -> [RelatedItem] {
-        RelatedItemScanner(fileSystem: fileSystem).scan(target, installedApps: .listed(others), homebrew: homebrew)
+        RelatedItemScanner(fileSystem: fileSystem).scan(
+            target, installedApps: .listed(others), registeredCopies: copies, homebrew: homebrew
+        )
     }
 
     private func installOther(path: String, bundleID: String) throws {
@@ -212,13 +215,76 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertNil(items.first?.lock)
     }
 
-    func testUnrelatedAppIsNotRead() {
+    /// A copy can carry any file name and Finder name (`Xcode-beta.app` beside `Xcode.app`), so the scan
+    /// reads the bundle ID of every other app, not only the look-alikes.
+    func testLocksAllWhenRenamedCopySharesBundleID() throws {
         put(lib("Caches", Fixture.bundleID))
-        let unrelated = ApplicationInfo(name: "Different", bundlePath: "/Applications/Different.app")
+        put(lib("Preferences", Fixture.bundleID + ".plist"))
+        let copyPath = "/Applications/Sample Pro Beta.app"
+        try installOther(path: copyPath, bundleID: Fixture.bundleID)
+        let copy = ApplicationInfo(name: "Sample Pro Beta", bundlePath: copyPath)
 
-        _ = scan(target(), others: [unrelated])
+        let items = scan(target(), others: [copy])
 
-        XCTAssertTrue(fileSystem.readDataCalls.isEmpty)
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
+    }
+
+    /// An unrelated app is read too, and its own bundle ID leaves the rows free.
+    func testUnrelatedAppIsReadAndLeavesRowsFree() throws {
+        put(lib("Caches", Fixture.bundleID))
+        let path = "/Applications/Different.app"
+        try installOther(path: path, bundleID: "com.y.different")
+
+        let items = scan(target(), others: [ApplicationInfo(name: "Different", bundlePath: path)])
+
+        XCTAssertTrue(fileSystem.readDataCalls.contains { $0.path == path + Fixture.infoSuffix })
+        XCTAssertNil(items.first?.lock)
+    }
+
+    /// An app the index does not list at all (Downloads, an external disk) still shares the files when
+    /// the system knows it under the same bundle ID.
+    func testLocksAllWhenOnlyTheSystemKnowsASecondCopy() {
+        put(lib("Caches", Fixture.bundleID))
+        put(lib("Containers", Fixture.bundleID))
+        let copies = [URL(fileURLWithPath: Fixture.bundlePath), URL(fileURLWithPath: "/Users/testuser/Downloads/Sample Pro.app")]
+
+        let items = scan(target(), copies: copies)
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.lock == .secondCopyInstalled })
+    }
+
+    /// The system's answer always names the target itself, under any spelling of its path.
+    func testSystemListingOnlyTheTargetIsNotASecondCopy() {
+        put(lib("Caches", Fixture.bundleID))
+        let itself = URL(fileURLWithPath: "/Applications/./Sample Pro.app/", isDirectory: true)
+
+        XCTAssertNil(scan(target(), copies: [itself]).first?.lock)
+    }
+
+    /// A copy the system knows is a confirmed second copy, so it outranks the unknown app list.
+    func testSystemCopyLocksEvenWhenTheIndexIsUnknown() {
+        put(lib("Caches", Fixture.bundleID))
+        let copies = [URL(fileURLWithPath: "/Volumes/Disk/Sample Pro.app")]
+
+        let items = RelatedItemScanner(fileSystem: fileSystem).scan(
+            target(), installedApps: .unknown, registeredCopies: copies, homebrew: nil
+        )
+
+        XCTAssertEqual(items.first?.lock, .secondCopyInstalled)
+    }
+
+    /// The index lists Finder's name, which follows the file name, while the target's name comes from its
+    /// Info.plist; another app whose file is named like the target makes a name row uncertain.
+    func testLocksNameMatchWhenAnotherAppsFileNameMatches() throws {
+        put(lib("Caches", Fixture.displayName))
+        let path = "/Applications/Other/Sample Pro.app"
+        try installOther(path: path, bundleID: "com.y.other")
+
+        let items = scan(target(), others: [ApplicationInfo(name: "Localized Name", bundlePath: path)])
+
+        XCTAssertEqual(items.first?.lock, .nameNotCertain)
     }
 
     func testUnreadableBundleIDOfSameNamedAppLocksEverything() {
@@ -235,7 +301,7 @@ final class RelatedItemScannerTests: XCTestCase {
         put(cache)
         put(named)
 
-        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target(), installedApps: .unknown, homebrew: nil)
+        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target(), installedApps: .unknown, registeredCopies: [], homebrew: nil)
 
         XCTAssertEqual(Set(items.map(\.url.path)), [cache, named])
         XCTAssertTrue(items.allSatisfy { $0.lock == .appListNotReady })
@@ -249,11 +315,11 @@ final class RelatedItemScannerTests: XCTestCase {
         put(container)
         let scanner = RelatedItemScanner(fileSystem: fileSystem)
 
-        var items = scanner.scan(target(), installedApps: .unknown, homebrew: nil)
+        var items = scanner.scan(target(), installedApps: .unknown, registeredCopies: [], homebrew: nil)
         XCTAssertEqual(item(items, container)?.lock, .protectedByMacOS)
         XCTAssertEqual(item(items, cache)?.lock, .appListNotReady)
 
-        items = scanner.scan(target(confirmed: false), installedApps: .unknown, homebrew: nil)
+        items = scanner.scan(target(confirmed: false), installedApps: .unknown, registeredCopies: [], homebrew: nil)
         XCTAssertTrue(items.allSatisfy { $0.lock == .identityNotConfirmed })
     }
 

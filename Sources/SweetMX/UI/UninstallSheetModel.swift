@@ -224,31 +224,48 @@ final class UninstallSheetModel {
             fileSystem: fileSystem, codeIdentity: dependencies.codeIdentity, ownBundleID: dependencies.ownBundleID
         )
         let installedApps = dependencies.installedApps()
+        let workspace = dependencies.workspace
         loadTask = Task { [weak self] in
-            let outcome = try? await Self.load(path: path, resolver: resolver, fileSystem: fileSystem, installedApps: installedApps)
-            guard let outcome, !Task.isCancelled, let self else { return }
+            guard let resolved = try? await Self.resolve(path: path, resolver: resolver) else { return }
+            let outcome: LoadOutcome
+            switch resolved {
+            case let .failure(refusal):
+                outcome = .refused(refusal)
+            case let .success(target):
+                // Asked on the main actor between the two disk steps: the workspace is a main-actor seam,
+                // and the answer needs the bundle ID only the resolver knows.
+                let copies = workspace.urlsForApplications(withBundleIdentifier: target.bundleID)
+                guard let inspected = try? await Self.inspect(
+                    target, fileSystem: fileSystem, installedApps: installedApps, registeredCopies: copies
+                ) else { return }
+                outcome = inspected
+            }
+            guard !Task.isCancelled, let self else { return }
             apply(outcome)
         }
     }
 
-    /// Every disk read of the sheet in one place, on the global executor. It stops between steps once
+    /// The resolver reads the bundle and checks its signature, so it runs on the global executor.
+    @concurrent
+    private static func resolve(
+        path: String, resolver: UninstallTargetResolver
+    ) async throws -> Result<UninstallTarget, UninstallRefusal> {
+        try Task.checkCancellation()
+        return resolver.resolve(bundlePath: path)
+    }
+
+    /// Every Library read of the sheet in one place, on the global executor. It stops between steps once
     /// the sheet closed, so a closed sheet does not keep walking the Library.
     @concurrent
-    private static func load(
-        path: String, resolver: UninstallTargetResolver, fileSystem: FileSystemProtocol, installedApps: [ApplicationInfo]?
+    private static func inspect(
+        _ target: UninstallTarget, fileSystem: FileSystemProtocol, installedApps: [ApplicationInfo]?, registeredCopies: [URL]
     ) async throws -> LoadOutcome {
-        try Task.checkCancellation()
-        let target: UninstallTarget
-        switch resolver.resolve(bundlePath: path) {
-        case let .failure(refusal):
-            return .refused(refusal)
-        case let .success(resolved):
-            target = resolved
-        }
         try Task.checkCancellation()
         let homebrew = HomebrewReceipt.find(for: target, fileSystem: fileSystem)
         let index = index(installedApps, listing: target)
-        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target, installedApps: index, homebrew: homebrew)
+        let items = RelatedItemScanner(fileSystem: fileSystem).scan(
+            target, installedApps: index, registeredCopies: registeredCopies, homebrew: homebrew
+        )
         try Task.checkCancellation()
         let notices = UninstallNotice.notices(for: target, homebrew: homebrew, fileSystem: fileSystem)
         try Task.checkCancellation()

@@ -29,6 +29,10 @@ public protocol WorkspaceProtocol {
     /// Find the processes that run from one bundle, so uninstall can quit them before it removes the app.
     func runningApplications(atBundleURL url: URL) -> [any RunningApplicationHandle]
 
+    /// Every copy of an app the system knows under one bundle ID, also outside the folders app search
+    /// indexes, so uninstall can lock the files a second copy would still use.
+    func urlsForApplications(withBundleIdentifier bundleID: String) -> [URL]
+
     /// Leave the item visible in Finder when SweetMX cannot remove it itself.
     func revealInFinder(_ url: URL)
 

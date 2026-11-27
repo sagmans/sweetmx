@@ -22,6 +22,10 @@ public final class SystemWorkspace: WorkspaceProtocol {
         return workspace.runningApplications.filter { $0.bundleURL?.resolvingSymlinksInPath().standardizedFileURL == wanted }
     }
 
+    public func urlsForApplications(withBundleIdentifier bundleID: String) -> [URL] {
+        workspace.urlsForApplications(withBundleIdentifier: bundleID)
+    }
+
     public func revealInFinder(_ url: URL) {
         workspace.activateFileViewerSelecting([url])
     }
