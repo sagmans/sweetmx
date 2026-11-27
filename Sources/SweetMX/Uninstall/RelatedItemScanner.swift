@@ -123,7 +123,10 @@ nonisolated struct RelatedItemScanner: Sendable {
     ) -> [RelatedItem] {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
         let ownPath = Self.standardPath(target.bundleURL.path)
-        let registeredSecondCopy = registeredCopies.contains { Self.standardPath($0.path) != ownPath }
+        let resolvedOwnPath = resolvedStandardPath(of: target.bundleURL)
+        let registeredSecondCopy = registeredCopies.contains {
+            Self.standardPath($0.path) != ownPath && resolvedStandardPath(of: $0) != resolvedOwnPath
+        }
         let others = InstalledApps(apps: installedApps, target: target).others.map { apps in
             apps.map { OtherApp(info: $0, identity: readIdentity(of: $0)) }
         }
@@ -183,6 +186,12 @@ nonisolated struct RelatedItemScanner: Sendable {
     /// same app, in the index and in the system's answer alike.
     private static func standardPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    /// The system may name the target through a link or a volume prefix. Only a path that still differs
+    /// after links are resolved counts as a second copy, so any doubt keeps the rows locked.
+    private func resolvedStandardPath(of url: URL) -> String {
+        Self.standardPath(fileSystem.resolvingSymlinks(url).path)
     }
 
     /// A second install with the same bundle ID shares every file, so removing one app's data would

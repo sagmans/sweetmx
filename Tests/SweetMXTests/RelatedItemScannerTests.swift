@@ -298,6 +298,25 @@ final class RelatedItemScannerTests: XCTestCase {
         XCTAssertNil(scan(target(), copies: [itself]).first?.lock)
     }
 
+    /// The system may report the target under a second spelling of its own path (a link or a volume
+    /// prefix); that is the same bundle, not a second copy.
+    func testSystemCopyThatResolvesToTheTargetIsNotASecondCopy() {
+        put(lib("Caches", Fixture.bundleID))
+        let alias = URL(fileURLWithPath: "/Volumes/Alias/Sample Pro.app")
+        fileSystem.resolvedPaths["/Volumes/Alias"] = URL(fileURLWithPath: "/Applications")
+
+        XCTAssertNil(scan(target(), copies: [alias]).first?.lock)
+    }
+
+    /// A different path that resolves elsewhere stays a second copy, so a doubt locks the rows.
+    func testSystemCopyThatResolvesElsewhereIsASecondCopy() {
+        put(lib("Caches", Fixture.bundleID))
+        let other = URL(fileURLWithPath: "/Volumes/Alias/Sample Pro.app")
+        fileSystem.resolvedPaths["/Volumes/Alias"] = URL(fileURLWithPath: "/Users/testuser/Downloads")
+
+        XCTAssertEqual(scan(target(), copies: [other]).first?.lock, .secondCopyInstalled)
+    }
+
     /// A copy the system knows is a confirmed second copy, so it outranks the unknown app list.
     func testSystemCopyLocksEvenWhenTheIndexIsUnknown() {
         put(lib("Caches", Fixture.bundleID))
