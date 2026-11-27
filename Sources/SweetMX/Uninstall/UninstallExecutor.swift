@@ -22,6 +22,8 @@ nonisolated struct UninstallItemResult: Equatable, Sendable {
         case appStillRunning, targetChanged, becameSymlink, missing,
              permissionDenied, finderCancelled, finderConsentRefused,
              finderTimedOut, protectedByMacOS, appDidNotMove, other(domain: String, code: Int)
+        /// The caller cancelled while the app was quitting; nothing moved, so the person can try again.
+        case cancelled
     }
 
     let url: URL
@@ -46,7 +48,9 @@ final class UninstallExecutor {
     private static let stillPresentDomain = "SweetMX.AppStillPresent"
     private static let stillPresentCode = 0
     private nonisolated static let libraryFolder = "Library"
-    private nonisolated static let pathSeparator = "/"
+    /// An item must sit at least this many components below `~/Library`, so a top-level folder such
+    /// as `~/Library/Caches` (shared by every app) can never be moved.
+    private nonisolated static let minimumDepthBelowLibrary = 2
 
     private let fileSystem: FileSystemProtocol
     private let workspace: WorkspaceProtocol
@@ -78,10 +82,19 @@ final class UninstallExecutor {
 
     /// Returns one result per item: the app first, then the ticked items in request order.
     func run(_ request: UninstallRequest) async -> [UninstallItemResult] {
-        guard await quitApp(at: request.target.bundleURL) else {
-            return refuseAll(request, reason: .appStillRunning)
+        // Checked before the quit request too, so an app that is no longer the confirmed one is never asked to quit.
+        guard await targetStillMatches(request.target) else {
+            return refuseAll(request, reason: .targetChanged)
         }
-        guard targetStillMatches(request.target) else {
+        switch await quitApp(at: request.target.bundleURL) {
+        case .quit:
+            break
+        case .stillRunning:
+            return refuseAll(request, reason: .appStillRunning)
+        case .cancelled:
+            return refuseAll(request, reason: .cancelled)
+        }
+        guard await targetStillMatches(request.target) else {
             return refuseAll(request, reason: .targetChanged)
         }
 
@@ -101,34 +114,45 @@ final class UninstallExecutor {
 
     // MARK: - Steps
 
+    private enum QuitResult { case quit, stillRunning, cancelled }
+
     /// Asks the app to quit and waits a bounded time. Only the timeout decides, because an app that
-    /// answers "no" may still be closing a document. It never forces a quit: unsaved work is not ours to discard.
-    private func quitApp(at bundleURL: URL) async -> Bool {
+    /// answers "no" may still be closing a document. It never forces a quit: unsaved work is not ours
+    /// to discard. A cancelled caller stops the wait and nothing moves.
+    private func quitApp(at bundleURL: URL) async -> QuitResult {
         let running = workspace.runningApplications(atBundleURL: bundleURL).filter { !$0.isTerminated }
-        guard !running.isEmpty else { return true }
+        guard !running.isEmpty else { return .quit }
         for application in running {
             _ = application.terminate()
         }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: quitTimeout)
         while running.contains(where: { !$0.isTerminated }) {
-            guard clock.now < deadline, !Task.isCancelled else { return false }
-            try? await Task.sleep(for: quitPollInterval)
+            guard clock.now < deadline else { return .stillRunning }
+            do {
+                try await Task.sleep(for: quitPollInterval)
+            } catch {
+                return .cancelled
+            }
         }
-        return true
+        return .quit
     }
 
     /// The sheet may have been open for a long time, so the app is judged again: a swapped bundle or
-    /// a signature that no longer matches means the person confirmed something else.
-    private func targetStillMatches(_ target: UninstallTarget) -> Bool {
-        guard case let .success(current) = resolver.resolve(bundlePath: target.bundleURL.path), current.bundleID == target.bundleID else { return false }
+    /// a signature that no longer matches means the person confirmed something else. It runs off the
+    /// main actor because it reads the bundle and checks its signature.
+    private func targetStillMatches(_ target: UninstallTarget) async -> Bool {
+        let resolver = resolver
+        let path = target.bundleURL.path
+        let result = await Task.detached { resolver.resolve(bundlePath: path) }.value
+        guard case let .success(current) = result, current.bundleID == target.bundleID else { return false }
         return !(target.identityConfirmed && !current.identityConfirmed)
     }
 
     private func moveApp(_ target: UninstallTarget) async -> UninstallItemResult.Outcome {
         let fileSystem = fileSystem
         let url = target.bundleURL
-        let outcome = await Task.detached { Self.trash(url, using: fileSystem) }.value
+        let outcome = await Task.detached { Self.trashApp(url, using: fileSystem) }.value
         guard finderHandOffEnabled, outcome == .notMoved(.permissionDenied) else { return outcome }
         return await moveThroughFinder(url)
     }
@@ -157,8 +181,8 @@ final class UninstallExecutor {
 
     private func moveRelated(_ item: RelatedItem) async -> UninstallItemResult.Outcome {
         if let lock = item.lock {
-            // A locked row must never reach the executor; reaching it is a bug in the caller.
-            Self.logger.error("Locked item in uninstall request: path=\(item.url.path, privacy: .private) lock=\(String(describing: lock), privacy: .public)")
+            // A locked row must never reach the executor; reaching it is a bug in the caller. The
+            // result below is logged once with the others, so this path adds no second line.
             return .notMoved(lock == .protectedByMacOS ? .protectedByMacOS : .targetChanged)
         }
         let fileSystem = fileSystem
@@ -168,23 +192,38 @@ final class UninstallExecutor {
 
     // MARK: - File work (runs off the main actor)
 
-    /// Re-checks one item right before the move, because the folders around it may have changed since the scan.
+    /// Re-checks one item right before the move, because the folders around it may have changed since
+    /// the scan. A real file system resolves every component of a path, so comparing resolved parents
+    /// proves nothing; instead every folder from `~/Library` down must itself not be a link, and the
+    /// fully resolved item must still lie inside the resolved Library.
     private nonisolated static func recheckAndTrash(_ url: URL, using fileSystem: FileSystemProtocol) -> UninstallItemResult.Outcome {
-        guard isInsideLibrary(url, home: fileSystem.homeDirectoryForCurrentUser) else { return .notMoved(.targetChanged) }
+        let library = fileSystem.homeDirectoryForCurrentUser.standardizedFileURL.appendingPathComponent(libraryFolder, isDirectory: true)
+        let libraryParts = library.pathComponents
+        let parts = url.pathComponents
+        guard url.path == url.standardizedFileURL.path,
+              parts.count >= libraryParts.count + minimumDepthBelowLibrary,
+              Array(parts.prefix(libraryParts.count)) == libraryParts
+        else { return .notMoved(.targetChanged) }
+
+        for count in libraryParts.count ... parts.count {
+            let ancestor = URL(fileURLWithPath: NSString.path(withComponents: Array(parts.prefix(count))))
+            if fileSystem.isSymbolicLink(at: ancestor) {
+                return .notMoved(.becameSymlink)
+            }
+        }
+        let resolvedLibrary = fileSystem.resolvingSymlinks(library).pathComponents
+        let resolvedItem = fileSystem.resolvingSymlinks(url).pathComponents
+        guard resolvedItem.count > resolvedLibrary.count, Array(resolvedItem.prefix(resolvedLibrary.count)) == resolvedLibrary else {
+            return .notMoved(.becameSymlink)
+        }
         guard fileSystem.fileExists(atPath: url.path) else { return .notMoved(.missing) }
-        guard !fileSystem.isSymbolicLink(at: url) else { return .notMoved(.becameSymlink) }
-        let itemParent = fileSystem.resolvingSymlinks(url).deletingLastPathComponent().path
-        let folder = fileSystem.resolvingSymlinks(url.deletingLastPathComponent()).path
-        guard itemParent == folder else { return .notMoved(.becameSymlink) }
         return trash(url, using: fileSystem)
     }
 
-    /// Strictly inside `<home>/Library/`: the folder itself and anything reached through `..` do not count.
-    private nonisolated static func isInsideLibrary(_ url: URL, home: URL) -> Bool {
-        let library = home.appendingPathComponent(libraryFolder, isDirectory: true).standardizedFileURL.path
-        let prefix = library.hasSuffix(pathSeparator) ? library : library + pathSeparator
-        let path = url.standardizedFileURL.path
-        return path.hasPrefix(prefix) && path.count > prefix.count
+    /// A link at the app's path could point the move at something else, so it is refused right before the move.
+    private nonisolated static func trashApp(_ url: URL, using fileSystem: FileSystemProtocol) -> UninstallItemResult.Outcome {
+        guard !fileSystem.isSymbolicLink(at: url) else { return .notMoved(.targetChanged) }
+        return trash(url, using: fileSystem)
     }
 
     /// The single removal call of the flow. It is a Trash move, so nothing is deleted for good.

@@ -3,13 +3,29 @@ import AppKit
 
 /// A running app a test can script, because `NSRunningApplication` cannot be created in a test.
 final class MockRunningApplication: RunningApplicationHandle {
-    var isTerminated: Bool
+    private var storedIsTerminated: Bool
+    private var readCount = 0
+    /// When set, the app reads as quit from the read after this many reads, so a test makes an app
+    /// "quit later" without a wall-clock delay.
+    var terminatesAfterReads: Int?
+
+    var isTerminated: Bool {
+        get {
+            readCount += 1
+            if let limit = terminatesAfterReads, readCount > limit {
+                return true
+            }
+            return storedIsTerminated
+        }
+        set { storedIsTerminated = newValue }
+    }
+
     /// What `terminate()` answers.
     var terminateResult: Bool
     private(set) var terminateCallCount = 0
 
     init(isTerminated: Bool = false, terminateResult: Bool = true) {
-        self.isTerminated = isTerminated
+        storedIsTerminated = isTerminated
         self.terminateResult = terminateResult
     }
 

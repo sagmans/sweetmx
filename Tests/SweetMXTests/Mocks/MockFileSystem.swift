@@ -404,7 +404,14 @@ final nonisolated class MockFileSystem: FileSystemProtocol, @unchecked Sendable 
     func resolvingSymlinks(_ url: URL) -> URL {
         withStateLock {
             _resolvingSymlinksCalls.append(url)
-            return _resolvedPaths[url.path] ?? url
+            // Like a real file system, a link in the middle of a path redirects everything below it.
+            let parts = url.pathComponents
+            for count in stride(from: parts.count, through: 1, by: -1) {
+                let prefix = NSString.path(withComponents: Array(parts.prefix(count)))
+                guard let target = _resolvedPaths[prefix] else { continue }
+                return parts.dropFirst(count).reduce(target) { $0.appendingPathComponent($1) }
+            }
+            return url
         }
     }
 

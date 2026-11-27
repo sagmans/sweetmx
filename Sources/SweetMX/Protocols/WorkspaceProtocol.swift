@@ -3,6 +3,7 @@ import AppKit
 /// The part of a running app that uninstall needs: whether it is gone and a polite quit request.
 ///
 /// `NSRunningApplication` cannot be created in a test, so the protocol gives mocks something they can build.
+/// It has no force-terminate member on purpose: uninstall must never discard an app's unsaved work, so a force quit is impossible through this type.
 public protocol RunningApplicationHandle {
     /// True once the app has quit, so the flow can stop waiting.
     var isTerminated: Bool { get }

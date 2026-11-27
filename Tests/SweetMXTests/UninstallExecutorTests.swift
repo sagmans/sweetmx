@@ -21,7 +21,8 @@ final class UninstallExecutorTests: XCTestCase {
         static let trashedURL = URL(fileURLWithPath: "/Users/testuser/.Trash/trashed")
         static let quitTimeout = Duration.milliseconds(60)
         static let pollInterval = Duration.milliseconds(5)
-        static let flipDelay = Duration.milliseconds(25)
+        static let patientTimeout = Duration.seconds(5)
+        static let quitAfterReads = 3
         static let finderTimeoutValue: TimeInterval = 120
         static let permissionCode = 513
         static let failureCode = 99
@@ -113,14 +114,11 @@ final class UninstallExecutorTests: XCTestCase {
 
     func testMovesAppThenTickedItems() async {
         let running = MockRunningApplication(isTerminated: false)
+        running.terminatesAfterReads = Fixture.quitAfterReads
         workspace.runningApplicationsByBundlePath[Fixture.appPath] = [running]
-        Task { @MainActor in
-            try? await Task.sleep(for: Fixture.flipDelay)
-            running.isTerminated = true
-        }
         let items = [item(Fixture.prefsPath), item(Fixture.cachePath)]
 
-        let results = await run(executor(), items: items)
+        let results = await run(executor(quitTimeout: Fixture.patientTimeout), items: items)
 
         XCTAssertEqual(results.map(\.url.path), [Fixture.appPath, Fixture.prefsPath, Fixture.cachePath])
         XCTAssertEqual(results.map(\.isApp), [true, false, false])
@@ -133,12 +131,9 @@ final class UninstallExecutorTests: XCTestCase {
     func testWaitsForAppThatQuitsLaterEvenWhenTerminateReturnsFalse() async {
         let running = MockRunningApplication(isTerminated: false, terminateResult: false)
         workspace.runningApplicationsByBundlePath[Fixture.appPath] = [running]
-        Task { @MainActor in
-            try? await Task.sleep(for: Fixture.flipDelay)
-            running.isTerminated = true
-        }
+        running.terminatesAfterReads = Fixture.quitAfterReads
 
-        let results = await run(executor(), items: [])
+        let results = await run(executor(quitTimeout: Fixture.patientTimeout), items: [])
 
         XCTAssertEqual(results.map(\.outcome), [.moved(to: Fixture.trashedURL)])
     }
@@ -156,14 +151,28 @@ final class UninstallExecutorTests: XCTestCase {
         XCTAssertTrue(finder.moveToTrashCalls.isEmpty)
     }
 
-    func testNeverForceQuits() async {
+    func testSendsOneQuitRequestAndMovesNothingWhileAppRuns() async {
         let running = MockRunningApplication(isTerminated: false)
         workspace.runningApplicationsByBundlePath[Fixture.appPath] = [running]
 
         _ = await run(executor(), items: [])
 
-        // The handle has no force-quit member; one polite request and no repeat is the whole contract.
+        // The handle type has no force-quit member, so only the request count can be proven here.
         XCTAssertEqual(running.terminateCallCount, 1)
+        XCTAssertTrue(fileSystem.trashItemCalls.isEmpty)
+    }
+
+    func testCancellationDuringQuitWaitMovesNothing() async {
+        let running = MockRunningApplication(isTerminated: false)
+        workspace.runningApplicationsByBundlePath[Fixture.appPath] = [running]
+        let subject = executor(quitTimeout: Fixture.patientTimeout)
+        let request = UninstallRequest(target: target(), items: [item(Fixture.cachePath)])
+
+        let task = Task { await subject.run(request) }
+        task.cancel()
+        let results = await task.value
+
+        XCTAssertEqual(reasons(results), [.cancelled, .cancelled])
         XCTAssertTrue(fileSystem.trashItemCalls.isEmpty)
     }
 
@@ -172,8 +181,13 @@ final class UninstallExecutorTests: XCTestCase {
     func testAbortsWhenBundleIDChangedSinceSheetOpened() async {
         installPlist(bundleID: Fixture.otherBundleID)
         identity.setIdentifier(Fixture.otherBundleID, forBundleAt: appURL)
+        let running = MockRunningApplication(isTerminated: false)
+        workspace.runningApplicationsByBundlePath[Fixture.appPath] = [running]
 
         let results = await run(executor(), items: [item(Fixture.cachePath)])
+
+        // A changed target is not the app the person confirmed, so it gets no quit request.
+        XCTAssertEqual(running.terminateCallCount, 0)
 
         XCTAssertEqual(reasons(results), [.targetChanged, .targetChanged])
         XCTAssertTrue(fileSystem.trashItemCalls.isEmpty)
@@ -226,6 +240,32 @@ final class UninstallExecutorTests: XCTestCase {
         XCTAssertEqual(fileSystem.trashItemCalls.map(\.path), [Fixture.appPath])
     }
 
+    func testSkipsItemWhenAnyFolderAboveItIsALink() async {
+        fileSystem.symbolicLinks.insert("/Users/testuser/Library/Caches")
+
+        let results = await run(executor(), items: [item(Fixture.cachePath)])
+
+        XCTAssertEqual(reasons(results), [nil, .becameSymlink])
+        XCTAssertEqual(fileSystem.trashItemCalls.map(\.path), [Fixture.appPath])
+    }
+
+    func testSkipsItemWhenLibraryItselfIsALink() async {
+        fileSystem.symbolicLinks.insert("/Users/testuser/Library")
+
+        let results = await run(executor(), items: [item(Fixture.cachePath)])
+
+        XCTAssertEqual(reasons(results), [nil, .becameSymlink])
+    }
+
+    func testParentLinkToAnotherPlaceIsCaughtEvenWhenNoFolderReportsALink() async {
+        // Only the resolved path shows that the item now lives outside the Library.
+        fileSystem.resolvedPaths["/Users/testuser/Library/Application Support"] = URL(fileURLWithPath: "/Volumes/Elsewhere/Support")
+
+        let results = await run(executor(), items: [item(Fixture.supportPath)])
+
+        XCTAssertEqual(reasons(results), [nil, .becameSymlink])
+    }
+
     func testSkipsItemThatIsGone() async {
         fileSystem.existingFiles[Fixture.cachePath] = nil
 
@@ -248,9 +288,21 @@ final class UninstallExecutorTests: XCTestCase {
 
     func testItemOutsideLibraryIsNeverMoved() async {
         let escape = Fixture.home + "/Library/../Documents/Sample"
-        let results = await run(executor(), items: [item(Fixture.outsidePath), item(Fixture.home + "/Library"), item(escape)])
+        let throughLink = Fixture.home + "/Library/Caches/lnk/../../Sample"
+        let items = [Fixture.outsidePath, Fixture.home + "/Library", escape, throughLink].map { item($0) }
 
-        XCTAssertEqual(reasons(results), [nil, .targetChanged, .targetChanged, .targetChanged])
+        let results = await run(executor(), items: items)
+
+        XCTAssertEqual(reasons(results), [nil] + Array(repeating: .targetChanged, count: 4))
+        XCTAssertEqual(fileSystem.trashItemCalls.map(\.path), [Fixture.appPath])
+    }
+
+    func testTopLevelLibraryFoldersAreNeverMoved() async {
+        let folders = ["Caches", "Preferences", "Application Support"].map { item(Fixture.home + "/Library/" + $0) }
+
+        let results = await run(executor(), items: folders)
+
+        XCTAssertEqual(reasons(results), [nil] + Array(repeating: .targetChanged, count: 3))
         XCTAssertEqual(fileSystem.trashItemCalls.map(\.path), [Fixture.appPath])
     }
 
