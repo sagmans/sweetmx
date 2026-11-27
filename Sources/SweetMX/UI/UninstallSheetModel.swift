@@ -97,12 +97,16 @@ final class UninstallSheetModel {
 
     @ObservationIgnored private let launcher: LauncherModel
     @ObservationIgnored private let dependencies: UninstallDependencies
+    /// Built once per sheet and handed to the scan, the Homebrew receipt, the executor and the shown
+    /// paths, so all of them agree on where the Library and the home folder are.
+    @ObservationIgnored private let library: UserLibrary
 
     /// Opens on a path; call `start()` to resolve and scan.
     init(bundlePath: String, launcher: LauncherModel, dependencies: UninstallDependencies) {
         self.bundlePath = bundlePath
         self.launcher = launcher
         self.dependencies = dependencies
+        library = UserLibrary(home: dependencies.fileSystem.homeDirectoryForCurrentUser)
     }
 
     /// A sheet for results that are already known, used when the launcher reopens after a move that
@@ -111,6 +115,7 @@ final class UninstallSheetModel {
         bundlePath = results.first { $0.isApp }?.url.path ?? ""
         self.launcher = launcher
         self.dependencies = dependencies
+        library = UserLibrary(home: dependencies.fileSystem.homeDirectoryForCurrentUser)
         self.results = results
         phase = .finished
     }
@@ -179,7 +184,7 @@ final class UninstallSheetModel {
     /// The bundle path with the home folder shortened to `~`, like the spec's sheet, and the file name
     /// cleaned as in `fullPath`.
     func displayPath(_ url: URL) -> String {
-        let home = dependencies.fileSystem.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let home = library.home.path
         let path = fullPath(url)
         guard url.path == home || url.path.hasPrefix(home + Self.pathSeparator) else { return path }
         return Self.homeAbbreviation + path.dropFirst(home.count)
@@ -220,6 +225,7 @@ final class UninstallSheetModel {
         guard phase == .scanning, loadTask == nil else { return }
         let path = bundlePath
         let fileSystem = dependencies.fileSystem
+        let library = library
         let resolver = UninstallTargetResolver(
             fileSystem: fileSystem, codeIdentity: dependencies.codeIdentity, ownBundleID: dependencies.ownBundleID
         )
@@ -236,7 +242,7 @@ final class UninstallSheetModel {
                 // and the answer needs the bundle ID only the resolver knows.
                 let copies = workspace.urlsForApplications(withBundleIdentifier: target.bundleID)
                 guard let inspected = try? await Self.inspect(
-                    target, fileSystem: fileSystem, installedApps: installedApps, registeredCopies: copies
+                    target, library: library, fileSystem: fileSystem, installedApps: installedApps, registeredCopies: copies
                 ) else { return }
                 outcome = inspected
             }
@@ -258,31 +264,22 @@ final class UninstallSheetModel {
     /// the sheet closed, so a closed sheet does not keep walking the Library.
     @concurrent
     private static func inspect(
-        _ target: UninstallTarget, fileSystem: FileSystemProtocol, installedApps: [ApplicationInfo]?, registeredCopies: [URL]
+        _ target: UninstallTarget,
+        library: UserLibrary,
+        fileSystem: FileSystemProtocol,
+        installedApps: [ApplicationInfo]?,
+        registeredCopies: [URL]
     ) async throws -> LoadOutcome {
         try Task.checkCancellation()
-        let homebrew = HomebrewReceipt.find(for: target, fileSystem: fileSystem)
-        let index = index(installedApps, listing: target)
-        let items = RelatedItemScanner(fileSystem: fileSystem).scan(
-            target, installedApps: index, registeredCopies: registeredCopies, homebrew: homebrew
+        let homebrew = HomebrewReceipt.find(for: target, library: library, fileSystem: fileSystem)
+        let items = RelatedItemScanner(fileSystem: fileSystem, library: library).scan(
+            target, installedApps: installedApps, registeredCopies: registeredCopies, homebrew: homebrew
         )
         try Task.checkCancellation()
         let notices = UninstallNotice.notices(for: target, homebrew: homebrew, fileSystem: fileSystem)
         try Task.checkCancellation()
         let size = fileSystem.allocatedSize(at: target.bundleURL, limit: RelatedItemScanner.sizeEntryLimit)
         return .ready(target: target, appSize: size, items: items, notices: notices)
-    }
-
-    /// An index that is missing, or that does not list the app being removed, is still loading or out of
-    /// date, so it cannot prove that no twin or same-named app exists.
-    private nonisolated static func index(
-        _ apps: [ApplicationInfo]?, listing target: UninstallTarget
-    ) -> RelatedItemScanner.InstalledApps {
-        let ownPath = RelatedItemScanner.standardPath(target.bundleURL.path)
-        guard let apps, apps.contains(where: { RelatedItemScanner.standardPath($0.bundlePath) == ownPath }) else {
-            return .unknown
-        }
-        return .listed(apps)
     }
 
     private func apply(_ outcome: LoadOutcome) {
@@ -359,6 +356,7 @@ final class UninstallSheetModel {
                 codeIdentity: dependencies.codeIdentity,
                 ownBundleID: dependencies.ownBundleID
             ),
+            library: library,
             finderHandOffEnabled: dependencies.finderHandOffEnabled
         )
         // Holds the model strongly on purpose: the move must finish and report even if the sheet closed.

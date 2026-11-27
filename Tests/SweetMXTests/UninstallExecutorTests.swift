@@ -83,6 +83,7 @@ final class UninstallExecutorTests: XCTestCase {
             workspace: workspace,
             finder: finder ?? self.finder,
             resolver: UninstallTargetResolver(fileSystem: fileSystem, codeIdentity: identity, ownBundleID: nil),
+            library: UserLibrary(home: fileSystem.homeDirectoryForCurrentUser),
             finderHandOffEnabled: finderHandOffEnabled,
             quitTimeout: quitTimeout,
             quitPollInterval: Fixture.pollInterval

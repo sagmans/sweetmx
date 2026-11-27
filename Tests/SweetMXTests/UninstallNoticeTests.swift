@@ -61,7 +61,9 @@ final class UninstallNoticeTests: XCTestCase {
         fileSystem.fileContents["\(tokenURL.path)/.metadata/INSTALL_RECEIPT.json"] = json
         fileSystem.symbolicLinks.insert(linkURL.path)
         fileSystem.resolvedPaths[linkURL.path] = URL(fileURLWithPath: Fixture.bundlePath)
-        return try XCTUnwrap(HomebrewReceipt.find(for: target(), fileSystem: fileSystem))
+        return try XCTUnwrap(HomebrewReceipt.find(
+            for: target(), library: UserLibrary(home: fileSystem.homeDirectoryForCurrentUser), fileSystem: fileSystem
+        ))
     }
 
     private func notices(_ target: UninstallTarget, homebrew: HomebrewReceipt? = nil) -> [UninstallNotice] {

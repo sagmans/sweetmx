@@ -352,6 +352,10 @@ after it.
    waits, resolves the target again, and moves the app. If the app moved, it
    checks each item again (depth, links, location) and moves it.
 
+`UserLibrary` holds the Library folder and the minimum depth (two levels
+below `~/Library`) once. The scan, the Homebrew receipt, the move check and
+the shown paths all use the same value, so they cannot disagree.
+
 A process that already runs as the same user can swap a folder for a link
 between the last check and the move. It can delete those files anyway, so
 this race crosses no privilege boundary.

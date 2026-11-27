@@ -64,9 +64,17 @@ final class RelatedItemScannerTests: XCTestCase {
         copies: [URL] = [],
         homebrew: HomebrewReceipt? = nil
     ) -> [RelatedItem] {
-        RelatedItemScanner(fileSystem: fileSystem).scan(
-            target, installedApps: .listed(others), registeredCopies: copies, homebrew: homebrew
-        )
+        // A loaded index always lists the target itself, so the scan treats the list as ready.
+        let itself = ApplicationInfo(name: target.displayName, bundlePath: target.bundleURL.path)
+        return scanner.scan(target, installedApps: [itself] + others, registeredCopies: copies, homebrew: homebrew)
+    }
+
+    private var scanner: RelatedItemScanner {
+        RelatedItemScanner(fileSystem: fileSystem, library: library)
+    }
+
+    private var library: UserLibrary {
+        UserLibrary(home: fileSystem.homeDirectoryForCurrentUser)
     }
 
     private func installOther(path: String, bundleID: String) throws {
@@ -295,8 +303,8 @@ final class RelatedItemScannerTests: XCTestCase {
         put(lib("Caches", Fixture.bundleID))
         let copies = [URL(fileURLWithPath: "/Volumes/Disk/Sample Pro.app")]
 
-        let items = RelatedItemScanner(fileSystem: fileSystem).scan(
-            target(), installedApps: .unknown, registeredCopies: copies, homebrew: nil
+        let items = scanner.scan(
+            target(), installedApps: nil, registeredCopies: copies, homebrew: nil
         )
 
         XCTAssertEqual(items.first?.lock, .secondCopyInstalled)
@@ -328,7 +336,7 @@ final class RelatedItemScannerTests: XCTestCase {
         put(cache)
         put(named)
 
-        let items = RelatedItemScanner(fileSystem: fileSystem).scan(target(), installedApps: .unknown, registeredCopies: [], homebrew: nil)
+        let items = scanner.scan(target(), installedApps: nil, registeredCopies: [], homebrew: nil)
 
         XCTAssertEqual(Set(items.map(\.url.path)), [cache, named])
         XCTAssertTrue(items.allSatisfy { $0.lock == .appListNotReady })
@@ -340,13 +348,12 @@ final class RelatedItemScannerTests: XCTestCase {
         let container = lib("Containers", Fixture.bundleID)
         put(cache)
         put(container)
-        let scanner = RelatedItemScanner(fileSystem: fileSystem)
 
-        var items = scanner.scan(target(), installedApps: .unknown, registeredCopies: [], homebrew: nil)
+        var items = scanner.scan(target(), installedApps: nil, registeredCopies: [], homebrew: nil)
         XCTAssertEqual(item(items, container)?.lock, .protectedByMacOS)
         XCTAssertEqual(item(items, cache)?.lock, .appListNotReady)
 
-        items = scanner.scan(target(confirmed: false), installedApps: .unknown, registeredCopies: [], homebrew: nil)
+        items = scanner.scan(target(confirmed: false), installedApps: nil, registeredCopies: [], homebrew: nil)
         XCTAssertTrue(items.allSatisfy { $0.lock == .identityNotConfirmed })
     }
 
@@ -358,9 +365,20 @@ final class RelatedItemScannerTests: XCTestCase {
             + (Fixture.bundlePath as NSString).lastPathComponent
         let listed = ApplicationInfo(name: Fixture.displayName, bundlePath: unnormalized)
 
-        let items = scan(target(), others: [listed])
+        let items = scanner.scan(target(), installedApps: [listed], registeredCopies: [], homebrew: nil)
 
         XCTAssertNil(item(items, cache)?.lock)
+    }
+
+    /// An index that does not list the target is stale, whoever passes it, so it cannot rule out a twin.
+    func testIndexWithoutTheTargetLocksEveryRow() throws {
+        let cache = lib("Caches", Fixture.bundleID)
+        put(cache)
+        let other = try installDifferentApp(name: "Different")
+
+        let items = scanner.scan(target(), installedApps: [other], registeredCopies: [], homebrew: nil)
+
+        XCTAssertEqual(item(items, cache)?.lock, .appListNotReady)
     }
 
     func testLockPrecedence() throws {
@@ -446,7 +464,7 @@ final class RelatedItemScannerTests: XCTestCase {
     }
 
     private func find() -> HomebrewReceipt? {
-        HomebrewReceipt.find(for: target(), fileSystem: fileSystem)
+        HomebrewReceipt.find(for: target(), library: library, fileSystem: fileSystem)
     }
 
     func testHomebrewReadsZapPaths() throws {
@@ -538,7 +556,7 @@ final class RelatedItemScannerTests: XCTestCase {
         put(canary)
         try installReceipt(json: receiptJSON(zap: ["trash": ["~/Library/Caches/com.google.Chrome.canary"]]))
 
-        let items = scan(chrome, homebrew: HomebrewReceipt.find(for: chrome, fileSystem: fileSystem))
+        let items = scan(chrome, homebrew: HomebrewReceipt.find(for: chrome, library: library, fileSystem: fileSystem))
 
         XCTAssertEqual(items.map(\.url.path), [canary])
         XCTAssertEqual(items.first?.lock, .nameNotCertain)

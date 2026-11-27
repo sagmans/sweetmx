@@ -24,12 +24,10 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
     private static let appKey = "app"
     private static let zapKey = "zap"
     private static let cleanupKeys = ["trash", "delete", "rmdir"]
-    private static let homePrefix = "~/" + RelatedItemScanner.libraryFolder + "/"
+    private static let homePrefix = "~/" + UserLibrary.folderName + "/"
     private static let pathSeparator: Character = "/"
     private static let forbiddenComponents: Set<String> = ["..", "."]
     private static let globCharacters = CharacterSet(charactersIn: "*?[]{}")
-    /// A path with fewer parts than this would name a whole Library folder such as Caches.
-    private static let minimumLibraryDepth = 2
 
     /// Only `find` builds a receipt, so no caller can pass one whose link to the installed copy was
     /// never checked.
@@ -40,9 +38,9 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
 
     /// Nil unless exactly one cask receipt names this app and the Caskroom holds a link that resolves
     /// to this very copy, so a same-named app elsewhere never inherits another install's cleanup list.
-    static func find(for target: UninstallTarget, fileSystem: FileSystemProtocol) -> HomebrewReceipt? {
+    /// `library` is the scan's own value, so cleanup paths and scan paths share one spelling.
+    static func find(for target: UninstallTarget, library: UserLibrary, fileSystem: FileSystemProtocol) -> HomebrewReceipt? {
         let appFileName = target.bundleURL.lastPathComponent
-        let home = fileSystem.homeDirectoryForCurrentUser
         var matches: [HomebrewReceipt] = []
         for root in caskroomRoots {
             let rootURL = URL(fileURLWithPath: root)
@@ -55,7 +53,7 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
                 let receiptURL = metadataURL.appendingPathComponent(receiptFile)
                 guard !fileSystem.isSymbolicLink(at: metadataURL), !fileSystem.isSymbolicLink(at: receiptURL),
                       let data = fileSystem.readData(at: receiptURL, maxBytes: receiptMaxBytes),
-                      let receipt = parse(data, token: token, appFileName: appFileName, home: home)
+                      let receipt = parse(data, token: token, appFileName: appFileName, library: library)
                 else { continue }
                 matches.append(receipt)
             }
@@ -101,7 +99,7 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
     }
 
     /// Wrong types are skipped rather than trusted, so a hostile receipt can only yield fewer paths.
-    private static func parse(_ data: Data, token: String, appFileName: String, home: URL) -> HomebrewReceipt? {
+    private static func parse(_ data: Data, token: String, appFileName: String, library: UserLibrary) -> HomebrewReceipt? {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
         let artifacts = artifactKeys.flatMap { (root[$0] as? [Any]) ?? [] }.compactMap { $0 as? [String: Any] }
         let namesTarget = artifacts.contains { artifact in
@@ -118,7 +116,7 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
         var seen = Set<String>()
         let paths = zapEntries
             .flatMap { entry in cleanupKeys.flatMap { strings(in: entry[$0]) } }
-            .compactMap { libraryURL(from: $0, home: home) }
+            .compactMap { libraryURL(from: $0, library: library) }
             .filter { seen.insert($0.path).inserted }
         return HomebrewReceipt(token: token, cleanupPaths: paths)
     }
@@ -131,14 +129,15 @@ nonisolated struct HomebrewReceipt: Equatable, Sendable {
         return (value as? [Any])?.compactMap { $0 as? String } ?? []
     }
 
-    private static func libraryURL(from path: String, home: URL) -> URL? {
+    /// A path with fewer parts than the Library's minimum depth would name a whole shared folder such
+    /// as Caches, so it is dropped here as well as at the move.
+    private static func libraryURL(from path: String, library: UserLibrary) -> URL? {
         guard path.hasPrefix(homePrefix), path.rangeOfCharacter(from: globCharacters) == nil else { return nil }
         let parts = path.dropFirst(homePrefix.count).split(separator: pathSeparator, omittingEmptySubsequences: false)
-        guard parts.count >= minimumLibraryDepth,
+        guard parts.count >= UserLibrary.minimumDepth,
               parts.allSatisfy({ !$0.isEmpty && !forbiddenComponents.contains(String($0)) })
         else { return nil }
-        return parts.reduce(URL(fileURLWithPath: home.path).appendingPathComponent(RelatedItemScanner.libraryFolder)) {
-            $0.appendingPathComponent(String($1))
-        }
+        // The hint keeps URL building from reading the disk, so a guarded path stays unread.
+        return parts.reduce(library.root) { $0.appendingPathComponent(String($1), isDirectory: false) }
     }
 }

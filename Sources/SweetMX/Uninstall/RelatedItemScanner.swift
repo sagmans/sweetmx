@@ -8,12 +8,20 @@ import Foundation
 nonisolated struct RelatedItemScanner: Sendable {
     /// What the scan knows about the other installed apps. An index that has not loaded, or that does
     /// not list the target yet, cannot rule out a second copy or a same-named app, so the scan must
-    /// lock as if both exist instead of reading an empty list as "no other apps".
-    enum InstalledApps: Sendable {
-        /// The index is loaded and lists the target; the array is every indexed app.
-        case listed([ApplicationInfo])
-        /// The index is missing or stale; every row is locked.
-        case unknown
+    /// lock as if both exist instead of reading an empty list as "no other apps". Built only here, from
+    /// the raw index, so no caller can hand the scan a list that skipped that rule.
+    private struct InstalledApps {
+        /// Every indexed app but the target; nil when the index is missing or does not list the target.
+        let others: [ApplicationInfo]?
+
+        init(apps: [ApplicationInfo]?, target: UninstallTarget) {
+            let ownPath = RelatedItemScanner.standardPath(target.bundleURL.path)
+            guard let apps, apps.contains(where: { RelatedItemScanner.standardPath($0.bundlePath) == ownPath }) else {
+                others = nil
+                return
+            }
+            others = apps.filter { RelatedItemScanner.standardPath($0.bundlePath) != ownPath }
+        }
     }
 
     /// One place in the Library where an app leaves data under its bundle ID.
@@ -21,6 +29,11 @@ nonisolated struct RelatedItemScanner: Sendable {
         let folder: String
         let suffix: String
         let kind: RelatedItem.Kind
+
+        /// A rule in a folder macOS guards lists its item by name only and always locks it.
+        var isProtected: Bool {
+            RelatedItemScanner.guardedFolders.contains(folder)
+        }
     }
 
     /// A row that passed the file checks and waits for its lock and size.
@@ -30,10 +43,11 @@ nonisolated struct RelatedItemScanner: Sendable {
         let match: RelatedItem.Match
         /// True when the scan is not sure the item belongs to this app; the row is then locked.
         let isUncertain: Bool
+        /// Set where the candidate is made, from the folder it was found in, so the lock and the size
+        /// read never have to work it out again from the path.
+        let isProtected: Bool
     }
 
-    /// Shared with `HomebrewReceipt`, which expands `~/Library/` paths, so one place owns the name.
-    static let libraryFolder = "Library"
     private static let preferencesFolder = "Preferences"
     private static let containersFolder = "Containers"
     private static let scriptsFolder = "Application Scripts"
@@ -44,6 +58,12 @@ nonisolated struct RelatedItemScanner: Sendable {
     private static let webKitFolder = "WebKit"
     private static let httpStoragesFolder = "HTTPStorages"
 
+    /// macOS guards these folders; the scan lists their items so the person knows they exist but never
+    /// opens them. A Homebrew row in any of them is shown locked and never read.
+    private static let guardedFolders: Set<String> = [containersFolder, scriptsFolder, groupContainersFolder]
+    /// Every place the scan looks for the exact bundle ID. `Group Containers` has no rule: its folders
+    /// are named after group IDs, which are almost never the bundle ID, and looking there may raise a
+    /// privacy prompt. The guarded rules come last, so the rows read "what can move" first.
     private static let bundleIDRules = [
         Rule(folder: preferencesFolder, suffix: ".plist", kind: .settings),
         Rule(folder: cachesFolder, suffix: "", kind: .cache),
@@ -52,11 +72,6 @@ nonisolated struct RelatedItemScanner: Sendable {
         Rule(folder: webKitFolder, suffix: "", kind: .webData),
         Rule(folder: logsFolder, suffix: "", kind: .logs),
         Rule(folder: supportFolder, suffix: "", kind: .appData),
-    ]
-    /// macOS guards these folders; the scan lists them so the person knows they exist but never opens them.
-    /// `Group Containers` has no bundle ID rule: its folders are named after group IDs, which are almost
-    /// never the bundle ID, and looking there may raise a privacy prompt. Homebrew rows still name it.
-    private static let protectedRules = [
         Rule(folder: containersFolder, suffix: "", kind: .container),
         Rule(folder: scriptsFolder, suffix: "", kind: .container),
     ]
@@ -65,81 +80,67 @@ nonisolated struct RelatedItemScanner: Sendable {
         Rule(folder: cachesFolder, suffix: "", kind: .cache),
         Rule(folder: logsFolder, suffix: "", kind: .logs),
     ]
-    private static let protectedFolders: Set<String> = [containersFolder, scriptsFolder, groupContainersFolder]
-    private static let kindsByFolder: [String: RelatedItem.Kind] = [
-        preferencesFolder: .settings,
-        cachesFolder: .cache,
-        httpStoragesFolder: .webData,
-        webKitFolder: .webData,
-        logsFolder: .logs,
-        supportFolder: .appData,
-    ]
-    /// Homebrew rows are selectable only one level inside these folders, the same places the
-    /// bundle ID rules look, so a cleanup list cannot reach Keychains, shared data or other apps.
-    private static let selectableFolders: Set<String> = Set(kindsByFolder.keys)
+    /// Homebrew rows are selectable only one level inside the folders the unguarded bundle ID rules
+    /// read, and take their kind from those rules, so a cleanup list cannot reach Keychains, shared
+    /// data or other apps.
+    private static let kindsByFolder: [String: RelatedItem.Kind] = Dictionary(
+        bundleIDRules.filter { !$0.isProtected }.map { ($0.folder, $0.kind) },
+        uniquingKeysWith: { first, _ in first }
+    )
     /// Endings a Library item may add to a bundle ID or name.
     private static let knownSuffixes = [".plist", ".binarycookies", ".savedState"]
-    private static let homebrewSelectableDepth = 2
-    private static let protectedDepth = 2
     /// Short names such as "Go" match too many unrelated folders to trust.
     private static let minimumNameLength = 4
     /// Stops a crafted Library folder from stalling the scan.
     private static let folderListLimit = 10000
     /// Entry budget for sizing one item, so a huge cache shows "size unknown" instead of blocking.
     static let sizeEntryLimit = 20000
-    private static let bundleExtension = "app"
     private static let pathSeparator = "/"
 
     private let fileSystem: FileSystemProtocol
+    private let library: UserLibrary
 
-    init(fileSystem: FileSystemProtocol) {
+    /// `library` is the value the executor checks against, so every path the scan builds passes the
+    /// move check unless the disk really changed.
+    init(fileSystem: FileSystemProtocol, library: UserLibrary) {
         self.fileSystem = fileSystem
+        self.library = library
     }
 
-    /// `installedApps` is the app index, to detect a shared name or bundle ID; when it is unknown, the
-    /// scan fails closed and locks every row it would otherwise offer. `registeredCopies` is what the
-    /// system knows under the target's bundle ID, which also covers copies the index never sees
-    /// (Downloads, an external disk).
+    /// `installedApps` is the raw app index, to detect a shared name or bundle ID; when it is missing
+    /// or does not list the target, the scan fails closed and locks every row it would otherwise offer.
+    /// `registeredCopies` is what the system knows under the target's bundle ID, which also covers
+    /// copies the index never sees (Downloads, an external disk).
     func scan(
-        _ target: UninstallTarget, installedApps: InstalledApps, registeredCopies: [URL], homebrew: HomebrewReceipt?
+        _ target: UninstallTarget, installedApps: [ApplicationInfo]?, registeredCopies: [URL], homebrew: HomebrewReceipt?
     ) -> [RelatedItem] {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
-        let library = URL(fileURLWithPath: fileSystem.homeDirectoryForCurrentUser.path)
-            .appendingPathComponent(Self.libraryFolder)
         let ownPath = Self.standardPath(target.bundleURL.path)
         let registeredSecondCopy = registeredCopies.contains { Self.standardPath($0.path) != ownPath }
-        let secondCopy: Bool
-        let nameIsCertain: Bool
-        let listIsReady: Bool
-        switch installedApps {
-        case .unknown:
-            secondCopy = registeredSecondCopy
-            nameIsCertain = false
-            listIsReady = false
-        case let .listed(apps):
-            listIsReady = true
-            let others = apps.filter { Self.standardPath($0.bundlePath) != ownPath }
-            secondCopy = registeredSecondCopy || hasSecondCopy(of: target, among: others)
-            nameIsCertain = target.displayName.count >= Self.minimumNameLength
+        let others = InstalledApps(apps: installedApps, target: target).others
+        let listIsReady = others != nil
+        let secondCopy = registeredSecondCopy || others.map { hasSecondCopy(of: target, among: $0) } == true
+        let nameIsCertain = others.map { others in
+            target.displayName.count >= Self.minimumNameLength
                 && !others.contains { Self.sharesName($0, with: target.displayName) }
-        }
+        } ?? false
 
-        var candidates = bundleIDCandidates(target, library: library)
-        candidates += nameCandidates(target, library: library, isCertain: nameIsCertain)
-        candidates += homebrewCandidates(homebrew, target: target, library: library, nameIsCertain: nameIsCertain)
+        var candidates = bundleIDCandidates(target)
+        candidates += nameCandidates(target, isCertain: nameIsCertain)
+        candidates += homebrewCandidates(homebrew, target: target, nameIsCertain: nameIsCertain)
 
         var seen = Set<String>()
         return candidates.filter { seen.insert($0.url.path).inserted }.map { candidate in
-            let isProtected = Self.isProtected(candidate.url, library: library)
-            return RelatedItem(
+            RelatedItem(
                 url: candidate.url,
                 kind: candidate.kind,
                 match: candidate.match,
-                sizeBytes: isProtected ? nil : fileSystem.allocatedSize(at: candidate.url, limit: Self.sizeEntryLimit),
+                sizeBytes: candidate.isProtected
+                    ? nil : fileSystem.allocatedSize(at: candidate.url, limit: Self.sizeEntryLimit),
                 lock: lock(
                     identityConfirmed: target.identityConfirmed,
                     secondCopy: secondCopy,
-                    isProtected: isProtected,
+                    isProtected: candidate.isProtected,
                     listIsReady: listIsReady,
                     nameNotCertain: candidate.isUncertain
                 )
@@ -170,20 +171,9 @@ nonisolated struct RelatedItemScanner: Sendable {
     }
 
     /// One spelling per bundle path, so `/Applications/./X.app` and `/Applications/X.app` count as the
-    /// same app, in the index and in the system's answer alike. Shared with the sheet, which checks
-    /// that the index lists the target.
-    static func standardPath(_ path: String) -> String {
+    /// same app, in the index and in the system's answer alike.
+    private static func standardPath(_ path: String) -> String {
         URL(fileURLWithPath: path).standardizedFileURL.path
-    }
-
-    private static func isProtected(_ url: URL, library: URL) -> Bool {
-        firstComponent(of: url, in: library).map(protectedFolders.contains) ?? false
-    }
-
-    private static func firstComponent(of url: URL, in library: URL) -> String? {
-        let prefix = library.path + pathSeparator
-        guard url.path.hasPrefix(prefix) else { return nil }
-        return url.path.dropFirst(prefix.count).split(separator: Character(pathSeparator)).first.map(String.init)
     }
 
     /// A second install with the same bundle ID shares every file, so removing one app's data would
@@ -209,21 +199,26 @@ nonisolated struct RelatedItemScanner: Sendable {
     /// Folders that macOS guards are checked by name only and never listed; every other folder is
     /// listed so the on-disk name must match exactly, because a case-insensitive volume would
     /// otherwise answer "exists" for `Com.X.App`.
-    private func bundleIDCandidates(_ target: UninstallTarget, library: URL) -> [Candidate] {
-        let listed = Self.bundleIDRules.compactMap { rule -> Candidate? in
-            let folder = library.appendingPathComponent(rule.folder)
+    private func bundleIDCandidates(_ target: UninstallTarget) -> [Candidate] {
+        Self.bundleIDRules.compactMap { rule -> Candidate? in
+            let folder = folderURL(rule.folder)
             let wanted = target.bundleID + rule.suffix
-            guard entries(of: folder).contains(where: { $0.lastPathComponent == wanted }) else { return nil }
-            return accepted(folder: folder, name: wanted).map {
-                Candidate(url: $0, kind: rule.kind, match: .bundleID, isUncertain: false)
+            let found: URL?
+            if rule.isProtected {
+                found = guardedItem(in: folder, name: wanted)
+            } else {
+                guard entries(of: folder).contains(where: { $0.lastPathComponent == wanted }) else { return nil }
+                found = accepted(folder: folder, name: wanted)
+            }
+            return found.map {
+                Candidate(url: $0, kind: rule.kind, match: .bundleID, isUncertain: false, isProtected: rule.isProtected)
             }
         }
-        let guarded = Self.protectedRules.compactMap { rule -> Candidate? in
-            guardedItem(in: library.appendingPathComponent(rule.folder), name: target.bundleID + rule.suffix).map {
-                Candidate(url: $0, kind: rule.kind, match: .bundleID, isUncertain: false)
-            }
-        }
-        return listed + guarded
+    }
+
+    /// A top-level Library folder the rules name; every row's path starts from the shared root.
+    private func folderURL(_ name: String) -> URL {
+        library.root.appendingPathComponent(name)
     }
 
     /// A guarded row is only ever shown locked, so it needs no more than one look at the item itself,
@@ -232,7 +227,8 @@ nonisolated struct RelatedItemScanner: Sendable {
     /// item or an unreadable one gives no row.
     private func guardedItem(in folder: URL, name: String) -> URL? {
         guard !name.contains(Self.pathSeparator) else { return nil }
-        let url = folder.appendingPathComponent(name)
+        // The hint keeps URL building from reading the item; the one look below is the only read.
+        let url = folder.appendingPathComponent(name, isDirectory: false)
         switch try? fileSystem.itemKind(at: url) {
         case .directory, .other:
             return url
@@ -247,38 +243,39 @@ nonisolated struct RelatedItemScanner: Sendable {
         )) ?? []
     }
 
-    private func nameCandidates(_ target: UninstallTarget, library: URL, isCertain: Bool) -> [Candidate] {
+    private func nameCandidates(_ target: UninstallTarget, isCertain: Bool) -> [Candidate] {
         Self.nameRules.flatMap { rule -> [Candidate] in
-            let folder = library.appendingPathComponent(rule.folder)
+            let folder = folderURL(rule.folder)
             return entries(of: folder).compactMap { entry in
                 let name = entry.lastPathComponent
                 guard name.caseInsensitiveCompare(target.displayName) == .orderedSame else { return nil }
                 return accepted(folder: folder, name: name).map {
-                    Candidate(url: $0, kind: rule.kind, match: .name, isUncertain: !isCertain)
+                    Candidate(url: $0, kind: rule.kind, match: .name, isUncertain: !isCertain, isProtected: rule.isProtected)
                 }
             }
         }
     }
 
-    /// The receipt only says where the cask's own data may be, so a row is ticked by default only when
-    /// its name also ties it to this app; anything else is shown locked.
+    /// The receipt only says where the cask's own data may be, so a row can be ticked only when its name
+    /// also ties it to this app; anything else is shown locked. Rows sit exactly one level inside a
+    /// known folder, the Library's minimum depth.
     private func homebrewCandidates(
-        _ receipt: HomebrewReceipt?, target: UninstallTarget, library: URL, nameIsCertain: Bool
+        _ receipt: HomebrewReceipt?, target: UninstallTarget, nameIsCertain: Bool
     ) -> [Candidate] {
         guard let receipt else { return [] }
         return receipt.cleanupPaths.compactMap { url in
-            guard let first = Self.firstComponent(of: url, in: library) else { return nil }
-            let depth = url.path.dropFirst(library.path.count + 1).split(separator: Character(Self.pathSeparator)).count
-            if Self.protectedFolders.contains(first) {
-                // Never stat-ed: the row exists only to tell the person the item is there.
-                guard depth == Self.protectedDepth else { return nil }
-                return Candidate(url: url, kind: .container, match: .homebrew, isUncertain: false)
+            guard let parts = library.components(of: url), parts.count == UserLibrary.minimumDepth,
+                  let first = parts.first
+            else { return nil }
+            if Self.guardedFolders.contains(first) {
+                // Never read: the row exists only to tell the person the item is there.
+                return Candidate(url: url, kind: .container, match: .homebrew, isUncertain: false, isProtected: true)
             }
-            guard Self.selectableFolders.contains(first), depth == Self.homebrewSelectableDepth,
+            guard let kind = Self.kindsByFolder[first],
                   let checked = accepted(folder: url.deletingLastPathComponent(), name: url.lastPathComponent)
             else { return nil }
             let tied = Self.tiesToApp(url.lastPathComponent, target: target, nameIsCertain: nameIsCertain)
-            return Candidate(url: checked, kind: Self.kindsByFolder[first] ?? .appData, match: .homebrew, isUncertain: !tied)
+            return Candidate(url: checked, kind: kind, match: .homebrew, isUncertain: !tied, isProtected: false)
         }
     }
 

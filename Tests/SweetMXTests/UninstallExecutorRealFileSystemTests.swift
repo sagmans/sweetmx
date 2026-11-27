@@ -65,7 +65,8 @@ final class UninstallExecutorRealFileSystemTests: XCTestCase {
             fileSystem: fileSystem,
             workspace: MockWorkspace(),
             finder: MockFinderTrash(),
-            resolver: UninstallTargetResolver(fileSystem: fileSystem, codeIdentity: identity, ownBundleID: nil)
+            resolver: UninstallTargetResolver(fileSystem: fileSystem, codeIdentity: identity, ownBundleID: nil),
+            library: UserLibrary(home: fileSystem.homeDirectoryForCurrentUser)
         )
         let rows = items.map { RelatedItem(url: $0, kind: .cache, match: .bundleID, sizeBytes: nil, lock: nil) }
         return await executor.run(UninstallRequest(target: target, items: rows))

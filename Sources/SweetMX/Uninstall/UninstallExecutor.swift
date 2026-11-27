@@ -47,26 +47,25 @@ final class UninstallExecutor {
     private static let finderErrorDomain = "SweetMX.FinderAppleEvent"
     private static let stillPresentDomain = "SweetMX.AppStillPresent"
     private static let stillPresentCode = 0
-    private nonisolated static let libraryFolder = "Library"
-    /// An item must sit at least this many components below `~/Library`, so a top-level folder such
-    /// as `~/Library/Caches` (shared by every app) can never be moved.
-    private nonisolated static let minimumDepthBelowLibrary = 2
 
     private let fileSystem: FileSystemProtocol
     private let workspace: WorkspaceProtocol
     private let finder: FinderTrashProtocol
     private let resolver: UninstallTargetResolver
+    private let library: UserLibrary
     private let finderHandOffEnabled: Bool
     private let quitTimeout: Duration
     private let quitPollInterval: Duration
 
-    /// `finderHandOffEnabled`, `quitTimeout` and `quitPollInterval` are injectable so tests cover
-    /// both policies and run in milliseconds; production uses the defaults.
+    /// `library` is the same value the scan used, so the final check and the scan agree on where the
+    /// Library is. `finderHandOffEnabled`, `quitTimeout` and `quitPollInterval` are injectable so tests
+    /// cover both policies and run in milliseconds; production uses the defaults.
     init(
         fileSystem: FileSystemProtocol,
         workspace: WorkspaceProtocol,
         finder: FinderTrashProtocol,
         resolver: UninstallTargetResolver,
+        library: UserLibrary,
         finderHandOffEnabled: Bool = UninstallPolicy.finderHandOffEnabled,
         quitTimeout: Duration = DesignTokens.Timing.uninstallQuitTimeout,
         quitPollInterval: Duration = DesignTokens.Timing.uninstallQuitPollInterval
@@ -75,6 +74,7 @@ final class UninstallExecutor {
         self.workspace = workspace
         self.finder = finder
         self.resolver = resolver
+        self.library = library
         self.finderHandOffEnabled = finderHandOffEnabled
         self.quitTimeout = quitTimeout
         self.quitPollInterval = quitPollInterval
@@ -186,8 +186,9 @@ final class UninstallExecutor {
             return .notMoved(lock == .protectedByMacOS ? .protectedByMacOS : .targetChanged)
         }
         let fileSystem = fileSystem
+        let library = library
         let url = item.url
-        return await Task.detached { Self.recheckAndTrash(url, using: fileSystem) }.value
+        return await Task.detached { Self.recheckAndTrash(url, in: library, using: fileSystem) }.value
     }
 
     // MARK: - File work (runs off the main actor)
@@ -196,24 +197,19 @@ final class UninstallExecutor {
     /// the scan. A real file system resolves every component of a path, so comparing resolved parents
     /// proves nothing; instead every folder from `~/Library` down must itself not be a link, and the
     /// fully resolved item must still lie inside the resolved Library.
-    private nonisolated static func recheckAndTrash(_ url: URL, using fileSystem: FileSystemProtocol) -> UninstallItemResult.Outcome {
-        let library = fileSystem.homeDirectoryForCurrentUser.standardizedFileURL.appendingPathComponent(libraryFolder, isDirectory: true)
-        let libraryParts = library.pathComponents
-        let parts = url.pathComponents
-        guard url.path == url.standardizedFileURL.path,
-              parts.count >= libraryParts.count + minimumDepthBelowLibrary,
-              Array(parts.prefix(libraryParts.count)) == libraryParts
-        else { return .notMoved(.targetChanged) }
+    private nonisolated static func recheckAndTrash(
+        _ url: URL, in library: UserLibrary, using fileSystem: FileSystemProtocol
+    ) -> UninstallItemResult.Outcome {
+        guard url.path == url.standardizedFileURL.path, library.contains(url) else { return .notMoved(.targetChanged) }
 
-        for count in libraryParts.count ... parts.count {
+        let parts = url.pathComponents
+        for count in library.root.pathComponents.count ... parts.count {
             let ancestor = URL(fileURLWithPath: NSString.path(withComponents: Array(parts.prefix(count))))
             if fileSystem.isSymbolicLink(at: ancestor) {
                 return .notMoved(.becameSymlink)
             }
         }
-        let resolvedLibrary = fileSystem.resolvingSymlinks(library).pathComponents
-        let resolvedItem = fileSystem.resolvingSymlinks(url).pathComponents
-        guard resolvedItem.count > resolvedLibrary.count, Array(resolvedItem.prefix(resolvedLibrary.count)) == resolvedLibrary else {
+        guard library.resolvingSymlinks(using: fileSystem).components(of: fileSystem.resolvingSymlinks(url)) != nil else {
             return .notMoved(.becameSymlink)
         }
         guard fileSystem.fileExists(atPath: url.path) else { return .notMoved(.missing) }
