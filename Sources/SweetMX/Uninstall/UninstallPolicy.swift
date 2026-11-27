@@ -5,7 +5,9 @@ nonisolated enum UninstallPolicy {
     /// Off because the Finder hand-off (Finder shows the administrator prompt) is unproven on this
     /// macOS release. While it is off, a permission failure is reported as such, so the person can
     /// finish the removal in Finder themselves. `UninstallExecutor` takes the value through its
-    /// initializer so tests cover both settings.
+    /// initializer so tests cover both settings. Before this flag is turned on, the links on the target
+    /// must be checked again right before the Finder request, because Finder follows a link the move
+    /// check never saw; that check does not exist yet.
     static let finderHandOffEnabled = false
 
     /// How long an app gets to quit after a polite request; a document with unsaved changes may

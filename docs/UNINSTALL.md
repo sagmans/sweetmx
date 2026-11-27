@@ -224,9 +224,11 @@ button:
 > Your account may need an administrator for this app. If the move fails,
 > finish in Finder.
 
-SweetMX does not ask Finder to move the app. No administrator prompt appears
-from SweetMX. If the move fails with a permission error, the result view says
-so:
+SweetMX does not ask Finder to move the app. A later version may do so. Before
+that, SweetMX must check the links on the app again right before it asks
+Finder, and the switch stays off until that check exists. No administrator
+prompt appears from SweetMX. If the move fails with a permission error, the
+result view says so:
 
 > SweetMX does not have permission to move this item. Move it to Trash in
 > Finder; Finder asks for an administrator password.
