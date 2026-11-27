@@ -32,6 +32,7 @@ private struct UninstallConfirmationView: View {
     /// room the rest needs and the sheet stays within the launcher panel.
     @State private var contentHeight: CGFloat = 0
     @State private var listHeight: CGFloat = 0
+    @State private var noticesHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallBlockSpacing) {
@@ -42,8 +43,9 @@ private struct UninstallConfirmationView: View {
                 // The header already says the app cannot be removed; the box gives only the reason.
                 UninstallNoticeBox(title: nil, message: DesignTokens.Copy.uninstallRefusal(refusal), severity: .blocking)
             }
-            ForEach(Array(model.notices.enumerated()), id: \.offset) { _, notice in
-                UninstallNoticeView(notice: notice, model: model)
+            if !model.notices.isEmpty {
+                UninstallNoticeStack(model: model, maxHeight: noticesLimit)
+                    .onGeometryChange(for: CGFloat.self, of: \.size.height) { noticesHeight = $0 }
             }
             AnyView(content)
             AnyView(footer)
@@ -51,13 +53,29 @@ private struct UninstallConfirmationView: View {
         .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
     }
 
+    /// Height the panel leaves for the blocks inside the padding.
+    private var room: CGFloat {
+        DesignTokens.Metrics.uninstallSheetMaxHeight - 2 * DesignTokens.Metrics.uninstallSheetPadding
+    }
+
+    /// Everything that never gives way (header, choice, footer, gaps), so the two blocks that do can
+    /// share what is left.
+    private var fixedHeight: CGFloat {
+        contentHeight - listHeight - noticesHeight
+    }
+
     /// The list's height limit: what is left of the panel height after everything else, up to the usual
-    /// maximum. It may shrink to nothing: the sheet staying within the launcher wins over showing rows,
-    /// and the choice and the button still say what moves.
+    /// maximum. It never drops below one whole row: a half row says nothing, and the notices give way
+    /// first (see `noticesLimit`).
     private var listLimit: CGFloat {
-        let room = DesignTokens.Metrics.uninstallSheetMaxHeight - 2 * DesignTokens.Metrics.uninstallSheetPadding
-            - (contentHeight - listHeight)
-        return min(max(room, 0), DesignTokens.Metrics.uninstallListMaxHeight)
+        let left = room - fixedHeight - noticesHeight
+        return min(max(left, DesignTokens.Metrics.uninstallListMinHeight), DesignTokens.Metrics.uninstallListMaxHeight)
+    }
+
+    /// The notices' height limit: what the panel leaves once the list has its one-row floor. Past it the
+    /// notices scroll, so every notice stays reachable and the sheet stays within the launcher.
+    private var noticesLimit: CGFloat {
+        max(room - fixedHeight - DesignTokens.Metrics.uninstallListMinHeight, DesignTokens.Metrics.uninstallNoticesMinHeight)
     }
 
     private var header: some View {
@@ -205,6 +223,26 @@ private struct UninstallConfirmationView: View {
             }
             .launcherButtonStyle(prominent: true)
         }
+    }
+}
+
+/// The notices above the list. Scrolls past `maxHeight` so a crowded sheet keeps its list readable
+/// instead of cutting a row in half; with room to spare it is as tall as its notices.
+private struct UninstallNoticeStack: View {
+    let model: UninstallSheetModel
+    let maxHeight: CGFloat
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DesignTokens.Metrics.uninstallBlockSpacing) {
+                ForEach(Array(model.notices.enumerated()), id: \.offset) { _, notice in
+                    UninstallNoticeView(notice: notice, model: model)
+                }
+            }
+            .onGeometryChange(for: CGFloat.self, of: \.size.height) { contentHeight = $0 }
+        }
+        .frame(height: min(contentHeight, maxHeight))
     }
 }
 

@@ -229,6 +229,11 @@ extension DesignTokens.Metrics {
     static let uninstallSheetWidth: CGFloat = 520
     /// Tallest the related list grows before it scrolls, so the sheet stays near the launcher's height.
     static let uninstallListMaxHeight: CGFloat = 220
+    /// Shortest the related list gets: a section caption and one whole row, so a crowded sheet never
+    /// cuts the first row in half. The notices give way before the list does.
+    static let uninstallListMinHeight: CGFloat = 90
+    /// Shortest the notices area gets when the sheet is crowded; it scrolls, so the rest stays reachable.
+    static let uninstallNoticesMinHeight: CGFloat = 48
     /// Tallest the whole sheet may be: the launcher panel's height, so the sheet never hangs below it.
     static let uninstallSheetMaxHeight: CGFloat = DesignTokens.Layout.appPanelSize.height
     /// Width of the kind column of a row; fits the longest kind and the "Listed by Homebrew" mark.
