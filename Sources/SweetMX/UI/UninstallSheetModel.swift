@@ -343,9 +343,8 @@ final class UninstallSheetModel {
     /// closing the sheet or the launcher only changes where its results are shown. The off switch is
     /// read again here, because the sheet may have been open when someone turned uninstall off.
     func confirm() {
-        guard canConfirm, launcher.isUninstallEnabled, !launcher.uninstallInFlight, let target else { return }
+        guard canConfirm, launcher.isUninstallEnabled, let target, launcher.uninstall.begin() else { return }
         phase = .moving
-        launcher.uninstallInFlight = true
         let request = UninstallRequest(
             target: target,
             items: rows.filter { $0.isTicked && !$0.isLocked }.map(\.item)
@@ -374,9 +373,9 @@ final class UninstallSheetModel {
     private func finish(_ results: [UninstallItemResult]) {
         self.results = results
         phase = .finished
-        launcher.uninstallInFlight = false
-        guard isSheetOpen, launcher.isPresented else {
-            launcher.keepUninstallResults(results)
+        let isShown = isSheetOpen && launcher.isPresented
+        launcher.uninstall.finish(isShown ? [] : results)
+        guard isShown else {
             onFinishedWithoutSheet()
             return
         }

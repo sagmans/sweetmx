@@ -213,7 +213,7 @@ disk use of the running app. See [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
 - `AppDelegate.swift` - Application lifecycle management
 - `HotkeyManager.swift` - Global shortcut registration and preferences
 - `Models/` - Observable launcher state: `LauncherModel`, `AppSearchModel`,
-  `ClipboardModel`
+  `ClipboardModel`, `UninstallSession`
 - `Shell/` - `LauncherPanel` (non-activating panel), `LauncherController` (show,
   hide, position), `CopyClipShortcut`
 - `Uninstall/` - Rules for removing an app: which apps and files, notices,

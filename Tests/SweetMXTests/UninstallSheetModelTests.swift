@@ -537,7 +537,7 @@ final class UninstallSheetModelTests: XCTestCase {
         XCTAssertTrue(closed)
         XCTAssertFalse(model.showsResults)
         XCTAssertEqual(world.launcher.status, .info(DesignTokens.Copy.uninstallMovedStatus(4)))
-        XCTAssertNil(world.launcher.pendingUninstallResults)
+        XCTAssertTrue(world.launcher.uninstall.pendingResults.isEmpty)
     }
 
     func testFailureProducesResultRows() async throws {
@@ -572,14 +572,14 @@ final class UninstallSheetModelTests: XCTestCase {
         await model.moveTask?.value
 
         XCTAssertTrue(reported)
-        XCTAssertEqual(world.launcher.pendingUninstallResults?.map(\.url.path), [Path.app])
-        XCTAssertTrue(UninstallSheetModel.allMoved(world.launcher.pendingUninstallResults ?? []))
+        XCTAssertEqual(world.launcher.uninstall.pendingResults.map(\.url.path), [Path.app])
+        XCTAssertTrue(UninstallSheetModel.allMoved(world.launcher.uninstall.pendingResults))
         XCTAssertEqual(world.fileSystem.trashItemCalls.map(\.path), [Path.app])
     }
 
     func testLaterResultsAreAppendedToPendingOnes() async {
         let earlier = UninstallItemResult(url: URL(fileURLWithPath: Fixture.otherAppPath), isApp: true, outcome: .moved(to: nil))
-        world.launcher.pendingUninstallResults = [earlier]
+        world.launcher.uninstall.putBack([earlier])
         let model = await fullModel()
 
         model.confirm()
@@ -587,7 +587,7 @@ final class UninstallSheetModelTests: XCTestCase {
         model.sheetDidClose()
         await model.moveTask?.value
 
-        XCTAssertEqual(world.launcher.pendingUninstallResults?.map(\.url.path), [Fixture.otherAppPath, Path.app])
+        XCTAssertEqual(world.launcher.uninstall.pendingResults.map(\.url.path), [Fixture.otherAppPath, Path.app])
     }
 
     func testOnlyOneMoveRunsAtATime() async {
@@ -597,26 +597,26 @@ final class UninstallSheetModelTests: XCTestCase {
         await second.loadTask?.value
 
         model.confirm()
-        XCTAssertTrue(world.launcher.uninstallInFlight)
+        XCTAssertTrue(world.launcher.uninstall.isInFlight)
         second.confirm()
         XCTAssertEqual(second.phase, .ready)
         UninstallPrompt.present(bundlePath: Path.app, for: world.launcher, over: NSWindow())
         XCTAssertEqual(world.launcher.status, .info(DesignTokens.Copy.uninstallStillRunning))
 
         await model.moveTask?.value
-        XCTAssertFalse(world.launcher.uninstallInFlight)
+        XCTAssertFalse(world.launcher.uninstall.isInFlight)
         XCTAssertEqual(world.fileSystem.trashItemCalls.map(\.path), [Path.app])
     }
 
     func testPendingAllMovedResultsBecomeTheStatusOnNextOpening() {
-        world.launcher.pendingUninstallResults = [
+        world.launcher.uninstall.putBack([
             UninstallItemResult(url: world.appURL, isApp: true, outcome: .moved(to: nil)),
-        ]
+        ])
         world.launcher.show(mode: .applications)
 
         UninstallPrompt.presentPendingResults(for: world.launcher, over: NSWindow())
 
-        XCTAssertNil(world.launcher.pendingUninstallResults)
+        XCTAssertTrue(world.launcher.uninstall.pendingResults.isEmpty)
         XCTAssertEqual(world.launcher.status, .info(DesignTokens.Copy.uninstallMovedStatus(1)))
     }
 

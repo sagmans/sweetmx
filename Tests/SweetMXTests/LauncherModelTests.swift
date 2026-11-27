@@ -483,7 +483,7 @@ final class LauncherModelTests: XCTestCase {
 
         UninstallPrompt.present(bundlePath: path, for: model, over: NSWindow())
 
-        XCTAssertFalse(model.uninstallInFlight)
+        XCTAssertFalse(model.uninstall.isInFlight)
         XCTAssertNil(model.status)
     }
 

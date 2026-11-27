@@ -20,11 +20,11 @@ enum UninstallPrompt {
     /// while an earlier move still runs.
     static func present(bundlePath: String, for model: LauncherModel, over window: NSWindow?) {
         guard model.isUninstallEnabled, model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil else { return }
-        guard !model.uninstallInFlight else {
+        guard !model.uninstall.isInFlight else {
             model.showUninstallStatus(.info(DesignTokens.Copy.uninstallStillRunning))
             return
         }
-        let sheetModel = UninstallSheetModel(bundlePath: bundlePath, launcher: model, dependencies: model.uninstall)
+        let sheetModel = UninstallSheetModel(bundlePath: bundlePath, launcher: model, dependencies: model.uninstall.dependencies)
         sheetModel.onFinishedWithoutSheet = { [weak model, weak window] in
             guard let model else { return }
             presentPendingResults(for: model, over: window)
@@ -36,18 +36,17 @@ enum UninstallPrompt {
     /// Shows the results of a move that ended while the launcher was closed. The shell calls it each
     /// time the launcher opens; with nothing pending it does nothing.
     static func presentPendingResults(for model: LauncherModel, over window: NSWindow?) {
-        guard model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil,
-              let results = model.pendingUninstallResults
-        else { return }
-        model.pendingUninstallResults = nil
+        guard model.isPresented, model.mode == .applications, let window, window.attachedSheet == nil else { return }
+        let results = model.uninstall.takePending()
+        guard !results.isEmpty else { return }
         if UninstallSheetModel.allMoved(results) {
             model.showUninstallStatus(.info(DesignTokens.Copy.uninstallMovedStatus(results.count)))
             return
         }
-        let sheetModel = UninstallSheetModel(results: results, launcher: model, dependencies: model.uninstall)
+        let sheetModel = UninstallSheetModel(results: results, launcher: model, dependencies: model.uninstall.dependencies)
         guard show(sheetModel, title: DesignTokens.Copy.uninstallResultTitle, over: window) else {
             // Kept for the next opening rather than lost, ahead of anything that arrived meanwhile.
-            model.pendingUninstallResults = results + (model.pendingUninstallResults ?? [])
+            model.uninstall.putBack(results)
             return
         }
     }

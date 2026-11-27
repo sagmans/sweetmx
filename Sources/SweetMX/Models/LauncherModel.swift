@@ -45,21 +45,8 @@ final class LauncherModel {
     let apps: AppSearchModel
     /// Clipboard results, replay and capture state, split out for the same reason.
     let clips: ClipboardModel
-    /// System seams of the uninstall flow, built from the same workspace and file system as app search.
-    @ObservationIgnored let uninstall: UninstallDependencies
-    /// Whether uninstall is on; the key handler, row menu, footer and prompt all ask here, so one
-    /// switch decides every way in.
-    @ObservationIgnored let uninstallSettings: UninstallSettings
-
-    /// Results of an uninstall that finished after the launcher closed, kept so the person still learns
-    /// what moved. They wait until the launcher next opens in app mode; a clipboard opening leaves them
-    /// here. Later results are appended, never written over, so no outcome is lost.
-    @ObservationIgnored var pendingUninstallResults: [UninstallItemResult]?
-    /// True from the moment a move starts until it reports. One move at a time: a second sheet could
-    /// offer files the first move is already taking, and its results would race the first one's.
-    @ObservationIgnored var uninstallInFlight = false
-    /// Footer line after an uninstall moved everything; one session long, like a launch failure.
-    private(set) var uninstallStatus: LauncherStatus?
+    /// Uninstall seams, switch, move slot, waiting results and footer line, split out for the same reason.
+    let uninstall: UninstallSession
 
     /// Whether the launcher is on screen, because background refreshes only matter while it is.
     private(set) var isPresented = false
@@ -98,8 +85,7 @@ final class LauncherModel {
     ) {
         self.apps = apps
         self.clips = clips
-        self.uninstall = uninstall
-        self.uninstallSettings = uninstallSettings
+        self.uninstall = UninstallSession(dependencies: uninstall, settings: uninstallSettings)
         wireSubmodels()
         observeBackgroundUpdates()
     }
@@ -153,7 +139,7 @@ final class LauncherModel {
     var status: LauncherStatus? {
         switch mode {
         case .clipboard: clips.removalStatus ?? clips.accessStatus
-        case .applications: apps.launchStatus ?? uninstallStatus
+        case .applications: apps.launchStatus ?? uninstall.status
         }
     }
 
@@ -176,15 +162,14 @@ final class LauncherModel {
         // First, while the app the user copied from still has focus, so a pending copy is credited to it.
         clips.setPanelVisible(true)
         clips.clearRemovalStatus()
-        apps.clearLaunchStatus()
-        uninstallStatus = nil
+        clearAppStatus()
         clips.beginReplay()
         enter(requested ?? .applications)
         isPresented = true
     }
 
-    /// Changes mode while the launcher is open. The removal message survives because it describes
-    /// history, which a mode flip does not change.
+    /// Changes mode while the launcher is open. The removal message and the uninstall line survive
+    /// because they describe history and the app list, which a mode flip does not change.
     func switchMode(to newMode: SearchMode) {
         apps.clearLaunchStatus()
         enter(newMode)
@@ -192,8 +177,7 @@ final class LauncherModel {
 
     /// The shell calls this when the launcher closes, so nothing in flight can touch a hidden launcher.
     func hide() {
-        apps.clearLaunchStatus()
-        uninstallStatus = nil
+        clearAppStatus()
         clips.endReplay()
         clips.setPanelVisible(false)
         cancelWork()
@@ -226,8 +210,7 @@ final class LauncherModel {
 
     private func updateQuery(_ text: String) {
         if text != query {
-            apps.clearLaunchStatus()
-            uninstallStatus = nil
+            clearAppStatus()
         }
         query = text
     }
@@ -470,19 +453,21 @@ final class LauncherModel {
 
     /// Read at use time so a changed preference applies at once.
     var isUninstallEnabled: Bool {
-        uninstallSettings.isEnabled
+        uninstall.isEnabled
     }
 
     /// Reports a finished uninstall in the footer. Only app search shows it, because the app list is
     /// what changed.
     func showUninstallStatus(_ status: LauncherStatus) {
         guard isPresented, mode == .applications else { return }
-        uninstallStatus = status
+        uninstall.show(status)
     }
 
-    /// Stores results for the next app-mode opening, after any that already wait there.
-    func keepUninstallResults(_ results: [UninstallItemResult]) {
-        pendingUninstallResults = (pendingUninstallResults ?? []) + results
+    /// The one reset of the app-search footer, so every path that drops a launch failure drops the
+    /// uninstall line with it.
+    private func clearAppStatus() {
+        apps.clearLaunchStatus()
+        uninstall.clearStatus()
     }
 
     /// Pauses or resumes capture so the user can copy secrets without them entering history.
