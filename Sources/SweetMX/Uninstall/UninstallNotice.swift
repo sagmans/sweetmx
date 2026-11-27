@@ -51,8 +51,9 @@ nonisolated enum UninstallNotice: Equatable, Sendable {
         return blocks + vendors + brew
     }
 
-    private static let libraryPath = "Contents/Library"
-    private static let systemExtensionsPath = "Contents/Library/SystemExtensions"
+    /// Checked in this order: the bundle's Library first, then its SystemExtensions folder, so a link
+    /// or a file at either level is caught before anything is listed.
+    private static let systemExtensionFolderPaths = ["Contents/Library", "Contents/Library/SystemExtensions"]
     /// One entry is enough to know the folder is not empty; the folder is never read deeper.
     private static let systemExtensionsListLimit = 1
     private static let homebrewCommandFormat = "brew uninstall --cask %@"
@@ -67,19 +68,15 @@ nonisolated enum UninstallNotice: Equatable, Sendable {
     /// link or a plain file in the way could hide an extension, and a missing block is the harmful
     /// mistake because the extension cannot be removed once the app is gone.
     private static func mayHoldSystemExtension(_ target: UninstallTarget, fileSystem: FileSystemProtocol) -> Bool {
-        let library = target.bundleURL.appendingPathComponent(libraryPath)
-        let folder = target.bundleURL.appendingPathComponent(systemExtensionsPath)
-        switch kind(of: library, fileSystem) {
-        case .missing: return false
-        case .directory: break
-        default: return true
+        let folders = systemExtensionFolderPaths.map { target.bundleURL.appendingPathComponent($0) }
+        for folder in folders {
+            switch kind(of: folder, fileSystem) {
+            case .missing: return false
+            case .directory: continue
+            default: return true
+            }
         }
-        switch kind(of: folder, fileSystem) {
-        case .missing: return false
-        case .directory: break
-        default: return true
-        }
-        guard let entries = try? fileSystem.contentsOfDirectory(
+        guard let folder = folders.last, let entries = try? fileSystem.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil, options: [], limit: systemExtensionsListLimit
         ) else { return true }
         return !entries.isEmpty

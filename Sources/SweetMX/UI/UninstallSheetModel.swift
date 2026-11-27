@@ -169,11 +169,17 @@ final class UninstallSheetModel {
             : DesignTokens.Copy.uninstallMayNeedAdministrator
     }
 
+    /// The items a move would take: ticked and not locked. The title and the request both read it, so
+    /// the count the button shows is the list that moves.
+    private var selectedItems: [RelatedItem] {
+        rows.filter { $0.isTicked && !$0.isLocked }.map(\.item)
+    }
+
     /// Counts the app plus the ticked rows; sizes that are unknown are left out and the title then
     /// says "at least", so the number never promises more precision than the scan had.
     var confirmTitle: String {
-        let ticked = rows.filter { $0.isTicked && !$0.isLocked }
-        let sizes = [appSizeBytes] + ticked.map(\.item.sizeBytes)
+        let ticked = selectedItems
+        let sizes = [appSizeBytes] + ticked.map(\.sizeBytes)
         let known = sizes.compactMap(\.self)
         let size = known.isEmpty ? nil : sizeText(known.reduce(0, +))
         return DesignTokens.Copy.uninstallMoveButton(
@@ -229,9 +235,7 @@ final class UninstallSheetModel {
         let path = bundlePath
         let fileSystem = dependencies.fileSystem
         let library = library
-        let resolver = UninstallTargetResolver(
-            fileSystem: fileSystem, codeIdentity: dependencies.codeIdentity, ownBundleID: dependencies.ownBundleID
-        )
+        let resolver = dependencies.makeResolver()
         let installedApps = dependencies.installedApps()
         let workspace = dependencies.workspace
         loadTask = Task { [weak self] in
@@ -347,17 +351,13 @@ final class UninstallSheetModel {
         phase = .moving
         let request = UninstallRequest(
             target: target,
-            items: rows.filter { $0.isTicked && !$0.isLocked }.map(\.item)
+            items: selectedItems
         )
         let executor = UninstallExecutor(
             fileSystem: dependencies.fileSystem,
             workspace: dependencies.workspace,
             finder: dependencies.finder,
-            resolver: UninstallTargetResolver(
-                fileSystem: dependencies.fileSystem,
-                codeIdentity: dependencies.codeIdentity,
-                ownBundleID: dependencies.ownBundleID
-            ),
+            resolver: dependencies.makeResolver(),
             library: library,
             finderHandOffEnabled: dependencies.finderHandOffEnabled
         )

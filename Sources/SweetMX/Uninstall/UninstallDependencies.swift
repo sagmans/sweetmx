@@ -22,6 +22,12 @@ struct UninstallDependencies {
     /// Formats byte counts in the sheets; injected so tests pin one locale and the app follows the Mac's.
     let locale: Locale
 
+    /// The one way the sheet builds a resolver, so the scan and the final check before the move judge
+    /// the app with the same seams and the same own-app guard.
+    func makeResolver() -> UninstallTargetResolver {
+        UninstallTargetResolver(fileSystem: fileSystem, codeIdentity: codeIdentity, ownBundleID: ownBundleID)
+    }
+
     /// Production seams around the workspace and file system the launcher already owns; `apps` gives
     /// the live index once the app delegate supplies it.
     static func live(workspace: WorkspaceProtocol, fileSystem: FileSystemProtocol, apps: AppSearchModel) -> UninstallDependencies {
