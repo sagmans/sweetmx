@@ -113,13 +113,22 @@ nonisolated struct UninstallTargetResolver: Sendable {
         }
     }
 
-    /// The related-item scan reads the bundle ID of a second app with the same name; sharing this
-    /// reader keeps one rule for what counts as a readable, well formed ID.
-    static func bundleID(ofBundleAt bundleURL: URL, fileSystem: FileSystemProtocol) -> String? {
-        guard let id = readInfo(of: bundleURL, fileSystem: fileSystem)?[bundleIDKey] as? String,
-              isWellFormed(bundleID: id)
-        else { return nil }
-        return id
+    /// What the related-item scan learns about another installed app from one Info.plist read: its
+    /// bundle ID and the names it calls itself. One reader keeps a single rule for what counts as a
+    /// readable ID and for how a name is cleaned, so the scan compares like with like.
+    struct ListedIdentity {
+        let bundleID: String?
+        let names: [String]
+    }
+
+    /// An app whose Info.plist cannot be read has no ID and no names.
+    static func listedIdentity(ofBundleAt bundleURL: URL, fileSystem: FileSystemProtocol) -> ListedIdentity {
+        guard let info = readInfo(of: bundleURL, fileSystem: fileSystem) else {
+            return ListedIdentity(bundleID: nil, names: [])
+        }
+        let id = (info[bundleIDKey] as? String).flatMap { isWellFormed(bundleID: $0) ? $0 : nil }
+        let names = displayNameKeys.compactMap { info[$0] as? String }.map(sanitized).filter { !$0.isEmpty }
+        return ListedIdentity(bundleID: id, names: names)
     }
 
     private static func readInfo(of bundleURL: URL, fileSystem: FileSystemProtocol) -> [String: Any]? {

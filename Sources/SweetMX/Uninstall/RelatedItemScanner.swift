@@ -24,6 +24,13 @@ nonisolated struct RelatedItemScanner: Sendable {
         }
     }
 
+    /// Another indexed app with what its own Info.plist says, read once per scan because both the
+    /// second-copy check and the shared-name check need it.
+    private struct OtherApp {
+        let info: ApplicationInfo
+        let identity: UninstallTargetResolver.ListedIdentity
+    }
+
     /// One place in the Library where an app leaves data under its bundle ID.
     private struct Rule {
         let folder: String
@@ -117,7 +124,9 @@ nonisolated struct RelatedItemScanner: Sendable {
         guard UninstallTargetResolver.isWellFormed(bundleID: target.bundleID) else { return [] }
         let ownPath = Self.standardPath(target.bundleURL.path)
         let registeredSecondCopy = registeredCopies.contains { Self.standardPath($0.path) != ownPath }
-        let others = InstalledApps(apps: installedApps, target: target).others
+        let others = InstalledApps(apps: installedApps, target: target).others.map { apps in
+            apps.map { OtherApp(info: $0, identity: readIdentity(of: $0)) }
+        }
         let listIsReady = others != nil
         let secondCopy = registeredSecondCopy || others.map { hasSecondCopy(of: target, among: $0) } == true
         let nameIsCertain = others.map { others in
@@ -184,24 +193,29 @@ nonisolated struct RelatedItemScanner: Sendable {
     /// the same listed name or file name, ignoring case. Flat and iOS-wrapper apps have no readable
     /// Info.plist, and counting every one of them would lock every row of every app on such a Mac. A
     /// renamed copy with an unreadable ID is still caught, by the system's own lookup by bundle ID.
-    private func hasSecondCopy(of target: UninstallTarget, among others: [ApplicationInfo]) -> Bool {
+    private func hasSecondCopy(of target: UninstallTarget, among others: [OtherApp]) -> Bool {
         let targetNames = [target.displayName, target.bundleURL.deletingPathExtension().lastPathComponent]
         return others.contains { app in
-            let otherID = UninstallTargetResolver.bundleID(
-                ofBundleAt: URL(fileURLWithPath: app.bundlePath), fileSystem: fileSystem
-            )
-            guard let otherID else {
+            guard let otherID = app.identity.bundleID else {
                 return targetNames.contains { Self.sharesName(app, with: $0) }
             }
             return otherID == target.bundleID
         }
     }
 
+    private func readIdentity(of app: ApplicationInfo) -> UninstallTargetResolver.ListedIdentity {
+        UninstallTargetResolver.listedIdentity(ofBundleAt: URL(fileURLWithPath: app.bundlePath), fileSystem: fileSystem)
+    }
+
     /// The target's name comes from its Info.plist, while the index lists Finder's name, which usually
-    /// follows the file name; either one matching makes a name row uncertain.
-    private static func sharesName(_ app: ApplicationInfo, with name: String) -> Bool {
-        let fileName = URL(fileURLWithPath: app.bundlePath).deletingPathExtension().lastPathComponent
-        return [app.name, fileName].contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    /// follows the file name. Another app can also call itself by that Info.plist name under a different
+    /// file name (`Foo Beta.app` named `Foo`) and write the same folders, so its own plist names count
+    /// too; any one matching makes a name row uncertain.
+    private static func sharesName(_ app: OtherApp, with name: String) -> Bool {
+        let fileName = URL(fileURLWithPath: app.info.bundlePath).deletingPathExtension().lastPathComponent
+        return ([app.info.name, fileName] + app.identity.names).contains {
+            $0.caseInsensitiveCompare(name) == .orderedSame
+        }
     }
 
     /// Folders that macOS guards are checked by name only and never listed; every other folder is

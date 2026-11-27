@@ -77,9 +77,9 @@ final class RelatedItemScannerTests: XCTestCase {
         UserLibrary(home: fileSystem.homeDirectoryForCurrentUser)
     }
 
-    private func installOther(path: String, bundleID: String) throws {
+    private func installOther(path: String, bundleID: String, plistNames: [String: String] = [:]) throws {
         let data = try PropertyListSerialization.data(
-            fromPropertyList: ["CFBundleIdentifier": bundleID], format: .xml, options: 0
+            fromPropertyList: plistNames.merging(["CFBundleIdentifier": bundleID]) { $1 }, format: .xml, options: 0
         )
         fileSystem.addFile(at: path + Fixture.infoSuffix, contents: data)
     }
@@ -320,6 +320,43 @@ final class RelatedItemScannerTests: XCTestCase {
         let items = scan(target(), others: [ApplicationInfo(name: "Localized Name", bundlePath: path)])
 
         XCTAssertEqual(items.first?.lock, .nameNotCertain)
+    }
+
+    /// Finder and file names can differ from the Info.plist name (`Foo Beta.app` that calls itself `Foo`),
+    /// and both apps may write the same folder, so the other app's own plist names count too.
+    func testLocksNameMatchWhenAnotherAppsPlistNameMatches() throws {
+        put(lib("Caches", Fixture.displayName))
+        let path = "/Applications/Other/Sample Pro Beta.app"
+        try installOther(path: path, bundleID: "com.y.other", plistNames: ["CFBundleName": "sample pro"])
+
+        let items = scan(target(), others: [ApplicationInfo(name: "Sample Pro Beta", bundlePath: path)])
+
+        XCTAssertEqual(items.first?.lock, .nameNotCertain)
+    }
+
+    /// The display name key counts as well as the short name key.
+    func testLocksNameMatchWhenAnotherAppsPlistDisplayNameMatches() throws {
+        put(lib("Caches", Fixture.displayName))
+        let path = "/Applications/Other/Beta.app"
+        try installOther(
+            path: path, bundleID: "com.y.other",
+            plistNames: ["CFBundleDisplayName": Fixture.displayName, "CFBundleName": "Beta"]
+        )
+
+        let items = scan(target(), others: [ApplicationInfo(name: "Beta", bundlePath: path)])
+
+        XCTAssertEqual(items.first?.lock, .nameNotCertain)
+    }
+
+    /// Another app with its own plist name leaves the name row free.
+    func testOtherAppsDifferentPlistNameLeavesNameRowFree() throws {
+        put(lib("Caches", Fixture.displayName))
+        let path = "/Applications/Other/Beta.app"
+        try installOther(path: path, bundleID: "com.y.other", plistNames: ["CFBundleName": "Beta"])
+
+        let items = scan(target(), others: [ApplicationInfo(name: "Beta", bundlePath: path)])
+
+        XCTAssertNil(items.first?.lock)
     }
 
     func testUnreadableBundleIDOfSameNamedAppLocksEverything() {
