@@ -32,11 +32,7 @@ extension Workspace {
         if focus == viewRoot {
             let parentAxis = tree.node(at: focusPath.dropLast())?.split?.axis
             let axis = focusPath.isEmpty ? Axis.horizontal : parentAxis?.crossed ?? .horizontal
-            let wrapper = ids.make()
-            tree.update(at: focusPath) { node in
-                node = Node(id: wrapper, content: .split(Split(axis: axis, nodes: [node, leaf])))
-            }
-            viewRoot = wrapper
+            wrap(&tree, at: focusPath, axis: axis, ids: &ids) { [$0, leaf] }
         } else if let index = focusPath.popLast() {
             tree.updateSplit(at: focusPath) { $0.insert(leaf, at: index + 1) }
         }
@@ -44,17 +40,37 @@ extension Workspace {
         focus = leaf.id
     }
 
+    /// Puts the node at `path` in a new split, with the nodes that `arrange` gives for it. This is
+    /// the one place where the tree gains a level, so it holds the zoom rule for all of them: when
+    /// the wrapped node was the view, the view is the new split, which shows that node and what
+    /// came to stand beside it.
+    private mutating func wrap(_ tree: inout Node, at path: NodePath, axis: Axis, ids: inout NodeIDSource, _ arrange: (Node) -> [Node]) {
+        let wrapper = ids.make()
+        var wrapped: NodeID?
+        tree.update(at: path) { node in
+            wrapped = node.id
+            node = Node(id: wrapper, content: .split(Split(axis: axis, nodes: arrange(node))))
+        }
+        if wrapped == viewRoot {
+            viewRoot = wrapper
+        }
+    }
+
     /// Takes a window out of the tree and returns its node, so it can go to another workspace
     /// with its name. The focus moves to the window beside the hole.
     mutating func remove(_ window: WindowID) -> Node? {
         guard let tree = root, let path = tree.path(toWindow: window), let leaf = tree.node(at: path) else { return nil }
-        let detachment = detach(at: path)
-        // Nothing left the tree (a fault in the path), so there is no node to hand on: a caller
-        // that put it in another workspace would hold the window twice.
-        guard detachment != nil || root == nil else { return nil }
-        settleView(after: detachment)
-        if focus == leaf.id, let detachment {
-            focus = self.leaf(beside: detachment)
+        switch detach(at: path) {
+        case .faulted:
+            // Nothing left the tree, so there is no node to hand on: a caller that put it in
+            // another workspace would hold the window twice.
+            return nil
+        case .emptied:
+            break
+        case let .detached(detachment):
+            if focus == leaf.id {
+                focus = self.leaf(beside: detachment)
+            }
         }
         return leaf
     }
@@ -117,14 +133,8 @@ extension Workspace {
                 viewRoot = parent.id
             }
         } else {
-            let wrapper = ids.make()
-            tree.update(at: focusPath) { node in
-                node = Node(id: wrapper, content: .split(Split(axis: axis, nodes: [node])))
-            }
             // A zoomed window stays zoomed: the view follows the new split that holds only it.
-            if viewRoot == focus {
-                viewRoot = wrapper
-            }
+            wrap(&tree, at: focusPath, axis: axis, ids: &ids) { [$0] }
         }
         self.root = tree
     }
@@ -147,49 +157,43 @@ extension Workspace {
     /// its size: a window the user made larger stays larger at its new place.
     mutating func moveFocused(_ direction: Direction, ids: inout NodeIDSource) {
         guard let (root, focusPath, viewPath) = anchors, focusPath.count > viewPath.count,
-              let leaf = root.node(at: focusPath), let index = focusPath.last
+              let leaf = root.node(at: focusPath), let index = focusPath.last,
+              let parent = root.node(at: focusPath.dropLast())?.split
         else { return }
-        var tree = root
         let before = self
+        var tree = root
         let parentPath = Array(focusPath.dropLast())
-        guard let parent = tree.node(at: parentPath)?.split else { return }
         let neighbor = index + direction.step
-        let besideNeighbor = parent.axis == direction.axis && parent.children.indices.contains(neighbor)
+        let move = Move(leaf: leaf, from: focusPath, view: viewPath, direction: direction)
 
-        if besideNeighbor, parent.children[neighbor].node.split == nil {
-            tree.updateSplit(at: parentPath) { $0.children.swapAt(index, neighbor) }
-            self.root = tree
-            return
-        }
-        // The window goes to its new place first and the old node is removed after, so `detach`
-        // repairs the tree around the hole in one way for every kind of move.
-        var stalePath = focusPath
-        if besideNeighbor {
+        // Every kind of move but the swap puts the window at its new place first and takes the
+        // old node out after, so `detach` repairs the tree around the hole in one way for all.
+        // Each returns where the old node is once the new one is in.
+        let stalePath: NodePath
+        if parent.axis == direction.axis, parent.children.indices.contains(neighbor) {
+            guard parent.children[neighbor].node.split != nil else {
+                tree.updateSplit(at: parentPath) { $0.children.swapAt(index, neighbor) }
+                self.root = tree
+                return
+            }
             tree.updateSplit(at: parentPath + [neighbor]) { $0.adopt(leaf, movingIn: direction) }
+            stalePath = focusPath
         } else if let level = Workspace.splitToLeaveInto(tree, focusPath: focusPath, viewDepth: viewPath.count, direction) {
-            let towardEnd = direction.step > 0
-            tree.updateSplit(at: focusPath.prefix(level)) { $0.insert(leaf, at: focusPath[level] + (towardEnd ? 1 : 0)) }
-            stalePath[level] += towardEnd ? 0 : 1
+            stalePath = move.leave(&tree, intoSplitAt: level)
         } else if parentPath == viewPath, parent.axis == direction.axis {
             // Already at the edge of the view, along its axis: there is nowhere further to go.
             return
         } else {
-            let towardEnd = direction.step > 0
-            let wrapper = ids.make()
-            tree.update(at: viewPath) { node in
-                node = Node(id: wrapper, content: .split(Split(axis: direction.axis, nodes: towardEnd ? [node, leaf] : [leaf, node])))
-            }
-            viewRoot = wrapper
-            stalePath.insert(towardEnd ? 0 : 1, at: viewPath.count)
+            wrap(&tree, at: viewPath, axis: direction.axis, ids: &ids) { move.towardEnd ? [$0, leaf] : [leaf, $0] }
+            stalePath = move.pathAfterWrappingView
         }
         self.root = tree
         // The tree holds the window twice until the old node is out. A move leaves at least that
-        // window, so no detachment means the path was at fault, and the whole move is undone.
-        guard let detachment = detach(at: stalePath) else {
+        // window, so anything but a detachment is a fault, and the whole move is undone.
+        guard case .detached = detach(at: stalePath) else {
             self = before
             return
         }
-        settleView(after: detachment)
     }
 
     /// The depth of the nearest split above the focused window's parent, inside the view, that
@@ -200,6 +204,37 @@ extension Workspace {
         return (viewDepth ..< parentDepth).reversed().first { depth in
             tree.node(at: focusPath.prefix(depth))?.split?.axis == direction.axis
         }
+    }
+}
+
+/// One move of a window that leaves its place: what moves, from where, and which way. It holds the
+/// path arithmetic of a move, so `moveFocused` reads as the choice between the kinds of move.
+private struct Move {
+    let leaf: Node
+    let from: NodePath
+    let view: NodePath
+    let direction: Direction
+
+    var towardEnd: Bool {
+        direction.step > 0
+    }
+
+    /// The window leaves its own split and stands in the split at depth `level`, on the side of
+    /// the branch it came from that the move points to. Returns where the old node is after:
+    /// one place later in that split when the new node went in before it.
+    func leave(_ tree: inout Node, intoSplitAt level: Int) -> NodePath {
+        tree.updateSplit(at: from.prefix(level)) { $0.insert(leaf, at: from[level] + (towardEnd ? 1 : 0)) }
+        var stale = from
+        stale[level] += towardEnd ? 0 : 1
+        return stale
+    }
+
+    /// Where the old node is after the view was wrapped in a split with the window beside it: one
+    /// level deeper, under the old view's place in the new split.
+    var pathAfterWrappingView: NodePath {
+        var stale = from
+        stale.insert(towardEnd ? 0 : 1, at: view.count)
+        return stale
     }
 }
 

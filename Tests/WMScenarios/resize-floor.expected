@@ -96,20 +96,20 @@ effects 1
 > send 1 0
 grid 0,0 workspaces 2 zoom 0
 tree @h(1 2*)
-frame 1 0 0 187 1080
-frame 2 187 0 1733 1080
+frame 1 0 0 192 1080
+frame 2 192 0 1728 1080
 hidden 3
 effects 4
   hide 3
-  frame 1 0 0 187 1080
-  frame 2 187 0 1733 1080
+  frame 1 0 0 192 1080
+  frame 2 192 0 1728 1080
   focus 2
 
 > focus left
 grid 0,0 workspaces 2 zoom 0
 tree @h(1* 2)
-frame 1 0 0 187 1080
-frame 2 187 0 1733 1080
+frame 1 0 0 192 1080
+frame 2 192 0 1728 1080
 hidden 3
 effects 1
   focus 1
@@ -117,17 +117,17 @@ effects 1
 > resize right -0.01
 grid 0,0 workspaces 2 zoom 0
 tree @h(1* 2)
-frame 1 0 0 187 1080
-frame 2 187 0 1733 1080
+frame 1 0 0 192 1080
+frame 2 192 0 1728 1080
 hidden 3
 effects 0
 
 > resize right 0.01
 grid 0,0 workspaces 2 zoom 0
 tree @h(1* 2)
-frame 1 0 0 206 1080
-frame 2 206 0 1714 1080
+frame 1 0 0 211 1080
+frame 2 211 0 1709 1080
 hidden 3
 effects 2
-  frame 1 0 0 206 1080
-  frame 2 206 0 1714 1080
+  frame 1 0 0 211 1080
+  frame 2 211 0 1709 1080

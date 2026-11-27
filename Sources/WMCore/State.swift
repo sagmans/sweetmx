@@ -141,11 +141,16 @@ public struct Rect: Equatable, Sendable {
         width * height
     }
 
-    /// A display rectangle comes from outside the model, so it is checked before use: every number
-    /// finite and a real area. Anything else would turn into frames that no window can take.
+    /// A display rectangle comes from outside the model, so it is checked before use: every edge
+    /// where a display can be, and a real area. Anything else would turn into frames that no
+    /// window can take.
     public var isUsable: Bool {
-        [x, y, width, height, maxX, maxY].allSatisfy(\.isFinite) && width > 0 && height > 0
+        [x, y, maxX, maxY].allSatisfy { abs($0) <= Rect.largestCoordinate } && width > 0 && height > 0
     }
+
+    /// No display is this far from the origin, in points. A finite number above it is as wrong as
+    /// one that is not finite, and sums of such numbers stop being numbers.
+    static let largestCoordinate = 1e7
 
     /// True when the two rectangles share an area. Touching edges do not count, and neither does a
     /// rectangle with no area, so tiled frames never overlap.
@@ -171,8 +176,12 @@ public struct Gaps: Equatable, Sendable {
         self.outer = Gaps.usable(outer)
     }
 
+    /// A gap above this is larger than any display, so it means the same as this one, and the
+    /// layout never has to add numbers too large to stay numbers.
+    static let largest = Rect.largestCoordinate
+
     private static func usable(_ value: Double) -> Double {
-        value.isFinite && value > 0 ? value : 0
+        value.isFinite && value > 0 ? min(value, largest) : 0
     }
 }
 
@@ -184,10 +193,6 @@ public struct Split: Equatable, Sendable {
     /// weight). It is measured against the whole split and not against the two neighbors: a floor
     /// that follows the pair lets two windows shrink in turn without end.
     static let minimumShare = 0.2
-    /// The smallest weight a child can have after `settleWeights`, where the mean weight is one:
-    /// raising small weights to `minimumShare` grows the sum by at most that part, and the scale
-    /// back to the mean takes the same part off again.
-    static let settledFloor = minimumShare / (1 + minimumShare)
 
     /// One place in a split. The node and its weight are one value, so no edit can change the
     /// order of the nodes and leave their sizes behind, and a swapped window keeps its size.

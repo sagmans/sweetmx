@@ -22,41 +22,42 @@ extension Split {
         children.reduce(0) { $0 + $1.weight }
     }
 
-    /// Brings the weights back to one scale: a mean of one, and none below `settledFloor`.
+    /// Brings the weights back to one scale: a mean of one, and none below `minimumShare`.
     ///
     /// Only the ratios matter to the layout, but the numbers must not drift. Without this, each
     /// large child that leaves makes the sum smaller, each new child joins at the smaller scale,
     /// and after some hundred windows every weight is zero and the windows have no area.
+    ///
+    /// A child below the smallest share is set to it and stays there; the others share what is
+    /// left. That can push one more child below, so it repeats, at most once for each child.
     mutating func settleWeights() {
-        rescale()
-        var raised = false
-        for index in children.indices where children[index].weight < Split.minimumShare {
-            children[index].weight = Split.minimumShare
-            raised = true
-        }
-        if raised {
-            rescale()
-        }
-    }
-
-    private mutating func rescale() {
-        let total = totalWeight
-        // Weights that are not positive numbers are a fault that the state check reports; a scale
-        // made from them would spread the fault to every child.
-        guard total.isFinite, total > 0 else { return }
-        let scale = Double(children.count) / total
-        for index in children.indices {
-            children[index].weight *= scale
+        var pinned = Array(repeating: false, count: children.count)
+        while true {
+            let free = children.indices.filter { !pinned[$0] }
+            let freeTotal = free.reduce(0) { $0 + children[$1].weight }
+            // Weights that are not positive numbers are a fault that the state check reports; a
+            // scale made from them would spread the fault to every child.
+            guard freeTotal.isFinite, freeTotal > 0 else { return }
+            let share = Double(children.count) - Double(children.count - free.count) * Split.minimumShare
+            for index in free {
+                children[index].weight *= share / freeTotal
+            }
+            let low = free.filter { children[$0].weight < Split.minimumShare }
+            guard !low.isEmpty else { return }
+            for index in low {
+                children[index].weight = Split.minimumShare
+                pinned[index] = true
+            }
         }
     }
 
     /// Moves the border between two children. Their combined weight stays the same, so no other
-    /// child moves, and each keeps at least `minimumShare` of an equal share. A child that a
-    /// removal left a little below that size keeps what it has: the limit only stops a border, it
-    /// never moves one against the direction the user asked for.
+    /// child moves, and each keeps at least `minimumShare` (the mean weight is one). The limit only
+    /// stops a border: it never moves one against the direction the user asked for, whatever
+    /// rounding left in the weights.
     mutating func grow(_ index: Int, by amount: Double, takingFrom neighbor: Int) {
         let pair = children[index].weight + children[neighbor].weight
-        let floor = Split.minimumShare * totalWeight / Double(children.count)
+        let floor = Split.minimumShare
         let wanted = children[index].weight + amount * totalWeight
         let smallest = min(floor, children[index].weight)
         let largest = pair - min(floor, children[neighbor].weight)
@@ -87,18 +88,27 @@ extension Node {
         }
     }
 
+    /// Calls `body` for this node and every node below it, parents first, in the order the layout
+    /// places them. The one walk of a whole tree; readers that need every node build on it.
+    func visit(_ body: (Node) -> Void) {
+        body(self)
+        split?.children.forEach { $0.node.visit(body) }
+    }
+
     /// Every window below this node, in the order the layout places them.
     var windows: [WindowID] {
         var found: [WindowID] = []
-        collectWindows(into: &found)
+        visit { node in
+            if let window = node.window {
+                found.append(window)
+            }
+        }
         return found
     }
 
-    private func collectWindows(into found: inout [WindowID]) {
-        switch content {
-        case let .window(window): found.append(window)
-        case let .split(split): split.children.forEach { $0.node.collectWindows(into: &found) }
-        }
+    /// The node with that name below this one, or nil.
+    func find(_ id: NodeID) -> Node? {
+        path(to: id).flatMap { node(at: $0) }
     }
 
     func path(to id: NodeID) -> NodePath? {
@@ -196,10 +206,21 @@ struct Detachment {
     let hoisted: Bool
 }
 
+/// What `detach` did. Three cases with three names, so no caller has to work out from the state
+/// of the tree which one it got.
+enum Removal {
+    /// The node is out and the tree still holds a window.
+    case detached(Detachment)
+    /// The node was the last window. The workspace is empty now.
+    case emptied
+    /// The path was wrong, by a fault in this module. Nothing changed.
+    case faulted
+}
+
 extension Workspace {
     var focusedWindow: WindowID? {
         guard let root, let focus else { return nil }
-        return root.path(to: focus).flatMap { root.node(at: $0) }?.window
+        return root.find(focus)?.window
     }
 
     var windows: [WindowID] {
@@ -212,15 +233,15 @@ extension Workspace {
         return root.path(to: viewRoot)?.count ?? 0
     }
 
-    /// Takes the node at `path` out of the tree and repairs the tree around the hole: a split left
-    /// with no child goes too, and a split left with one child gives its place to that child, so
-    /// a removal never leaves an empty box on the screen. Returns nil when the tree is now empty,
-    /// and also, with the tree still in place and not changed, when the path was at fault.
+    /// Takes the node at `path` out of the tree and repairs the workspace around the hole. A split
+    /// left with no child goes too, and a split left with one child gives its place to that
+    /// child, so a removal never leaves an empty box on the screen. The view is repaired in the
+    /// same step, because a caller that forgot it would leave `viewRoot` on a node that is gone.
     ///
     /// It works by path, not by name, because a move puts a copy of the window node at its new
     /// place first and then removes the old one, and both carry the same name for that moment.
-    mutating func detach(at nodePath: NodePath) -> Detachment? {
-        guard var tree = root else { return nil }
+    mutating func detach(at nodePath: NodePath) -> Removal {
+        guard var tree = root else { return .faulted }
         var path = nodePath
         while let index = path.popLast() {
             var remaining: Int?
@@ -234,31 +255,32 @@ extension Workspace {
                 remaining = split.children.count
                 parent = remaining == 1 ? split.children[0].node : Node(id: parent.id, content: .split(split))
             }
-            // A fault in the path. The tree stays as it is: one level up, the same index would
-            // remove a window that the caller did not name.
-            guard let remaining else { return nil }
+            // One level up, the same index would remove a window that the caller did not name.
+            guard let remaining else { return .faulted }
             if remaining > 0 {
                 root = tree
-                return Detachment(heirPath: path, gap: index, hoisted: remaining == 1)
+                let detachment = Detachment(heirPath: path, gap: index, hoisted: remaining == 1)
+                settleView(after: detachment)
+                return .detached(detachment)
             }
         }
+        // Every split above the node held nothing else, so the tree is empty now. An empty path
+        // names the root itself, and that is a removal only when the root is the last window.
+        guard !nodePath.isEmpty || tree.window != nil else {
+            assertionFailure("WMCore: a removal names the root of a tree that holds a split")
+            return .faulted
+        }
         root = nil
-        return nil
+        viewRoot = nil
+        focus = nil
+        return .emptied
     }
 
     /// Keeps `viewRoot` on a real node after a removal. When the zoomed node itself is gone, the
     /// view moves to the node that took its parent's place: one level out, never to a hidden node.
-    mutating func settleView(after detachment: Detachment?) {
-        guard let root, let detachment, let heir = root.node(at: detachment.heirPath) else {
-            if root == nil {
-                viewRoot = nil
-                focus = nil
-            }
-            return
-        }
-        if let viewRoot, root.path(to: viewRoot) == nil {
-            self.viewRoot = heir.id
-        }
+    private mutating func settleView(after detachment: Detachment) {
+        guard let root, let viewRoot, root.path(to: viewRoot) == nil, let heir = root.node(at: detachment.heirPath) else { return }
+        self.viewRoot = heir.id
     }
 
     /// The window node next to a hole: the sibling before it, or the one after it when the hole

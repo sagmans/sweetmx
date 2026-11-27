@@ -105,17 +105,18 @@ struct Fuzzer {
         Rect(x: 0, y: 0, width: -100, height: 100),
         Rect(x: .nan, y: 0, width: 100, height: 100),
         Rect(x: 0, y: 0, width: .infinity, height: 100),
+        Rect(x: -1e308, y: 0, width: 1.5e308, height: 1080),
     ]
     /// A run is cut into one part for each of these, in order, and each part starts from an empty
     /// state. No gaps comes first: only there do the frames have to cover the whole screen. The
     /// rest are a usual config, an inner gap with no outer gap (the first box is then larger than
-    /// the screen), a gap larger than the screen, and a number at the end of the range.
+    /// the screen), a gap larger than the screen, and a number near the end of the range.
     private static let gapSettings = [
         Gaps.none,
         Gaps(inner: 10, outer: 10),
         Gaps(inner: 40, outer: 0),
         Gaps(inner: 5000, outer: 0),
-        Gaps(inner: 1e300, outer: 5),
+        Gaps(inner: 1.7e308, outer: 5),
     ]
     private static let resizeAmounts: [Double] = [0.05, -0.05, 0.3, -0.3, 5, -5, 0, 1e308, .nan, .infinity, -.infinity]
 

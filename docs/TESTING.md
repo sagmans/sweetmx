@@ -237,7 +237,7 @@ screen after each line. The run fails when the output is not equal to the
 | `large-gaps.scn`       | A gap larger than a window leaves it on the screen with no area.  |
 | `zoom-split.scn`       | A split asked for on a zoomed window sets where the next opens.   |
 | `weight-drift.scn`     | After 600 rounds of resize and send, the windows keep their area. |
-| `resize-floor.scn`     | A request to shrink a window at its limit does not grow it.       |
+| `resize-floor.scn`     | A window at its smallest size stays there and can still grow.     |
 
 The first seven are the proof that the window manager plan asks for. The run
 fails when one of them is missing.

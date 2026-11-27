@@ -19,9 +19,7 @@ public struct WindowFrame: Equatable, Sendable {
 /// hole, however deep the tree is. The model sets no smallest size, so a window deep in a tree
 /// can get a frame with no area; the platform layer reads back the frame a real window accepts.
 public func layout(_ workspace: Workspace, screenRect: Rect, gaps: Gaps) -> [WindowFrame] {
-    guard screenRect.isUsable, let root = workspace.root, let viewRoot = workspace.viewRoot,
-          let view = root.path(to: viewRoot).flatMap({ root.node(at: $0) })
-    else { return [] }
+    guard screenRect.isUsable, let viewRoot = workspace.viewRoot, let view = workspace.root?.find(viewRoot) else { return [] }
     // Each window is inset by half the inner gap, so two neighbors are one inner gap apart. The
     // screen is inset by the rest, so a window at the edge is one outer gap from it.
     let halfInner = gaps.inner / 2

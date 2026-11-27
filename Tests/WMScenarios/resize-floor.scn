@@ -1,6 +1,7 @@
-# A resize near the smallest size. Passes when a request to shrink a window
-# that is already below the limit leaves it as it is, and a request to grow
-# it still works: the limit stops a border, it never moves one back.
+# A resize at the smallest size. Passes when a window that a removal left
+# too small comes back to the limit, a request to shrink it more leaves it
+# as it is, and a request to grow it still works: the limit stops a border,
+# it never moves one back.
 create
 create
 create
@@ -10,8 +11,8 @@ focus left
 resize right -5
 focus right
 focus right
-# Window 3 leaves. The two that stay share its width, and window 1 is now a
-# little below a fifth of an equal share.
+# Window 3 leaves. The two that stay share its width, and window 1 gets
+# exactly a fifth of an equal share: a tenth of the screen, 192 points.
 send 1 0
 focus left
 resize right -0.01

@@ -9,7 +9,7 @@ public enum StateRule: String, CaseIterable, Sendable {
     /// `viewRoot` and `focus` name existing nodes, and the focus is a window inside the view.
     case references
     /// Every split has a child, and the weights keep one scale: their mean is one and none is
-    /// below `Split.settledFloor`.
+    /// below `Split.minimumShare`.
     case splitShape = "split-shape"
     /// The current cell exists, and no other workspace is empty.
     case gridCells = "grid-cells"
@@ -114,11 +114,6 @@ private extension Workspace {
 }
 
 private extension Node {
-    func visit(_ body: (Node) -> Void) {
-        body(self)
-        split?.children.forEach { $0.node.visit(body) }
-    }
-
     func brokenSplits() -> [String] {
         var broken: [String] = []
         visit { node in
@@ -127,7 +122,7 @@ private extension Node {
                 broken.append("split \(node.id.rawValue) has no child")
             }
             let count = Double(split.children.count)
-            let floor = Split.settledFloor * (1 - WMState.weightTolerance)
+            let floor = Split.minimumShare * (1 - WMState.weightTolerance)
             if !split.children.allSatisfy({ $0.weight.isFinite && $0.weight >= floor }) {
                 broken.append("split \(node.id.rawValue) has bad weights")
             } else if abs(split.totalWeight - count) > count * WMState.weightTolerance {
@@ -183,6 +178,10 @@ private enum BrokenExample {
         (.windowOnce, state(row([leaf(1, node: 1), leaf(1, node: 2)])).violations()),
         (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(1), focus: NodeID(9))).violations()),
         (.references, state(Workspace(root: leaf(1, node: 1), viewRoot: NodeID(9), focus: NodeID(1))).violations()),
+        // The focus is a split, the focus is outside the view, and an empty workspace has a view.
+        (.references, state(Workspace(root: row([leaf(1, node: 1), leaf(2, node: 2)]).root, viewRoot: NodeID(0), focus: NodeID(0))).violations()),
+        (.references, state(Workspace(root: row([leaf(1, node: 1), leaf(2, node: 2)]).root, viewRoot: NodeID(1), focus: NodeID(2))).violations()),
+        (.references, state(Workspace(root: nil, viewRoot: NodeID(1), focus: nil)).violations()),
         (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], weights: [0, 2])).violations()),
         (.splitShape, state(row([leaf(1, node: 1), leaf(2, node: 2)], weights: [0.5, 0.5])).violations()),
         (.splitShape, state(Workspace(root: Node(id: NodeID(0), content: .split(Split(axis: .horizontal, nodes: []))), viewRoot: NodeID(0), focus: nil)).violations()),
